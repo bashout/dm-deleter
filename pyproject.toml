@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "message-deleter"
+version = "0.3.0"
+description = "View and bulk delete direct messages"
+requires-python = ">=3.7"
+dependencies = [
+    "requests>=2.25.0",
+]
+
+[project.optional-dependencies]
+build = [
+    "pyinstaller>=6.0",
+]
+
+[project.scripts]
+message-deleter = "dm_deleter:main"
+
+[tool.setuptools]
+py-modules = ["dm_deleter"]

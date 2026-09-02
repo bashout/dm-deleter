@@ -66,11 +66,14 @@ class MessageDeleter:
             return []
     
     def get_all_dm_users(self):
-        """Get list of all users you have DMs with."""
+        """Get list of all users you have DMs with (bots excluded)."""
         users = {}
         for channel in self.dm_channels:
             if 'recipients' in channel:
+                last_message_id = channel.get('last_message_id')
                 for recipient in channel['recipients']:
+                    if recipient.get('bot'):
+                        continue
                     user_id = recipient['id']
                     if user_id != self.current_user['id']:
                         users[user_id] = {
@@ -78,7 +81,8 @@ class MessageDeleter:
                             'username': recipient.get('username', 'Unknown'),
                             'discriminator': recipient.get('discriminator', '0000'),
                             'global_name': recipient.get('global_name', ''),
-                            'channel_id': channel['id']
+                            'channel_id': channel['id'],
+                            'last_message_id': last_message_id
                         }
         return list(users.values())
     
@@ -215,6 +219,15 @@ def handle_dm_deletion(tool):
         print("No DM users found.")
         return
     
+    print("\nSort by:")
+    print("[1] Recent interaction (default)")
+    print("[2] Alphabetical by username")
+    sort_choice = input("Sort mode (1 or 2): ").strip()
+    if sort_choice == '2':
+        users.sort(key=lambda u: (u.get('username') or '').lower())
+    else:
+        users.sort(key=lambda u: int(u.get('last_message_id') or 0), reverse=True)
+
     print("\n" + "="*80)
     print("SELECT A USER TO DELETE MESSAGES FROM")
     print("="*80)

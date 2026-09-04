@@ -10,7 +10,7 @@ import requests
 import time
 from datetime import datetime, timedelta
 
-API_BASE = "https://discord.com/api/v9"  # Platform API endpoint
+API_BASE = "https://discord.com/api/v10"  # Platform API endpoint
 RATE_LIMIT_DELAY = 2.6  # 24 messages per minute = ~2.5s each, use 2.6s for safety
 
 class MessageDeleter:

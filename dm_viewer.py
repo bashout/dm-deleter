@@ -10,7 +10,7 @@ import json
 import time
 from datetime import datetime
 
-API_BASE = "https://discord.com/api/v9"  # Platform API endpoint
+API_BASE = "https://discord.com/api/v10"  # Platform API endpoint
 
 class DMTool:
     def __init__(self, token):

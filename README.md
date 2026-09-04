@@ -15,7 +15,7 @@ Bulk delete DM or server messages at 24/minute rate.
 
 ### Download a prebuilt binary (no install needed)
 
-1. Go to the [Releases page](https://github.com/yourusername/message-deleter/releases).
+1. Go to the [Releases page](https://github.com/bashout/message-deleter/releases).
 2. Download the file for your operating system:
    - **Windows:** `message-deleter-windows.exe`
    - **macOS (Apple Silicon):** `message-deleter-macos-arm64`
@@ -39,7 +39,7 @@ Gatekeeper. Windows may show a SmartScreen warning the first time — click
 
 ```bash
 # Clone the repo
-git clone https://github.com/yourusername/message-deleter.git
+git clone https://github.com/bashout/message-deleter.git
 cd message-deleter
 
 # Install

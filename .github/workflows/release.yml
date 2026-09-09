@@ -5,9 +5,6 @@ on:
     tags:
       - "v*"
 
-permissions:
-  contents: write
-
 jobs:
   build:
     name: Build ${{ matrix.os }}
@@ -22,6 +19,9 @@ jobs:
           - os: macos-latest
             artifact: message-deleter-macos-arm64
             rename_ext: ""
+          - os: macos-13
+            artifact: message-deleter-macos-x86_64
+            rename_ext: ""
           - os: ubuntu-latest
             artifact: message-deleter-linux
             rename_ext: ""
@@ -30,19 +30,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v6
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10
         with:
-          python-version: "3.11"
+          enable-cache: true
 
       - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install pyinstaller
-          pip install -r requirements.txt
+        run: uv sync --extra build --locked --python 3.14
 
       - name: Build executable
-        run: python build_exe.py
+        run: uv run --no-sync python build_exe.py
 
       - name: Rename binary
         shell: bash
@@ -60,6 +57,8 @@ jobs:
     name: Create Release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7

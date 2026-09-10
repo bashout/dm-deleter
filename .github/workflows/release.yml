@@ -19,7 +19,7 @@ jobs:
           - os: macos-latest
             artifact: message-deleter-macos-arm64
             rename_ext: ""
-          - os: macos-13
+          - os: macos-15-intel
             artifact: message-deleter-macos-x86_64
             rename_ext: ""
           - os: ubuntu-latest

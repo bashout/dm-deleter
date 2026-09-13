@@ -15,7 +15,7 @@ Bulk delete DM or server messages at 24/minute rate.
 
 ### Download a prebuilt binary (no install needed)
 
-1. Go to the [Releases page](https://github.com/yourusername/message-deleter/releases).
+1. Go to the [Releases page](https://github.com/bashout/dm-deleter/releases).
 2. Download the file for your operating system:
    - **Windows:** `message-deleter-windows.exe`
    - **macOS (Apple Silicon):** `message-deleter-macos-arm64`
@@ -39,8 +39,8 @@ Gatekeeper. Windows may show a SmartScreen warning the first time — click
 
 ```bash
 # Clone the repo
-git clone https://github.com/yourusername/message-deleter.git
-cd message-deleter
+git clone https://github.com/bashout/dm-deleter.git
+cd dm-deleter
 
 # Install
 pipx install .
@@ -49,14 +49,29 @@ pipx install .
 message-deleter
 ```
 
-### Run directly with Python
+### Run from source with uv
+
+Installs the exact pinned versions from `uv.lock`, and fetches a suitable
+Python for you:
 
 ```bash
-# Install dependencies
-pip install requests
+git clone https://github.com/bashout/dm-deleter.git
+cd dm-deleter
+
+uv run dm_deleter.py
+```
+
+### Run directly with Python
+
+Requires Python 3.8 or newer.
+
+```bash
+# Install the project and its dependencies
+pip install .
 
 # Run
-python3 dm_deleter.py
+python dm_deleter.py      # Windows
+python3 dm_deleter.py     # macOS / Linux
 ```
 
 ## Getting Your Token

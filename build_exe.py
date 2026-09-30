@@ -6,20 +6,28 @@ Produces a single-file console binary named `message-deleter`
 (plus the OS-specific extension) in dist/.
 """
 
+import sys
+from pathlib import Path
+
 import PyInstaller.__main__ as pyi
+
+ICON = Path(__file__).parent / "branding" / "icon.ico"
 
 
 def build():
-    pyi.run(
-        [
-            "dm_deleter.py",
-            "--onefile",
-            "--console",
-            "--name", "message-deleter",
-            "--clean",
-            "--noconfirm",
-        ]
-    )
+    args = [
+        "dm_deleter.py",
+        "--onefile",
+        "--console",
+        "--name", "message-deleter",
+        "--clean",
+        "--noconfirm",
+    ]
+    # Only Windows executables carry an icon resource; macOS icons belong to
+    # .app bundles and Linux binaries get their icon from .desktop files.
+    if sys.platform == "win32":
+        args += ["--icon", str(ICON)]
+    pyi.run(args)
 
 
 if __name__ == "__main__":

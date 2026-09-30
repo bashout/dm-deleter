@@ -28,11 +28,13 @@ self-contained.
 
 import argparse
 import bisect
+import ipaddress
 import json
 import mimetypes
 import os
 import re
 import sys
+import threading
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -44,6 +46,22 @@ SEARCH_MAX = 200
 VIEW_CACHE_MAX = 32
 
 LINK_RE = re.compile(r"https?://", re.IGNORECASE)
+
+
+class ClientInputError(ValueError):
+    """A request query parameter was malformed; the handler replies 400."""
+
+
+def int_param(params, name, default):
+    """An int query parameter value, or default when absent. Raises
+    ClientInputError on malformed input instead of crashing the handler."""
+    raw = (params.get(name) or [None])[0]
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        raise ClientInputError(f"invalid {name}: {raw!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -1077,7 +1095,9 @@ function highlightInto(target, text, q) {
 let galleryInit = false;
 
 async function loadGallery() {
+  const epoch = state.epoch;
   const data = await api("/api/attachment-years");
+  if (epoch !== state.epoch) return; // archive switched while fetching
   els.gallery.replaceChildren();
   for (const y of data.years) {
     els.gallery.appendChild(yearSection(y));
@@ -1180,7 +1200,9 @@ function galleryItem(att) {
 // ---------------------------------------------------------------------------
 
 async function loadStats() {
+  const epoch = state.epoch;
   const s = await api("/api/stats");
+  if (epoch !== state.epoch) return; // archive switched while fetching
   const wrap = el("div");
   const cards = el("div", "cards");
   const mkCard = (num, lbl) => {
@@ -1804,6 +1826,7 @@ class ArchiveLibrary:
     def __init__(self, root):
         self.root = Path(root).absolute()
         self._cache = {}  # folder name -> Archive; insertion order is LRU order
+        self._lock = threading.Lock()  # guards _cache and selected across handler threads
         self.selected = None
         self.selected_name = None
 
@@ -1815,14 +1838,15 @@ class ArchiveLibrary:
             return None
         if not (folder / "meta.json").is_file() or not (folder / "messages.jsonl").is_file():
             return None
-        archive = self._cache.pop(name, None)
-        if archive is None:
-            archive = Archive(folder)  # may take a few seconds for large archives
-        self._cache[name] = archive
-        while len(self._cache) > self.CACHE_MAX:
-            self._cache.pop(next(iter(self._cache)))
-        self.selected = archive
-        self.selected_name = name
+        with self._lock:
+            archive = self._cache.pop(name, None)
+            if archive is None:
+                archive = Archive(folder)  # may take a few seconds for large archives
+            self._cache[name] = archive
+            while len(self._cache) > self.CACHE_MAX:
+                self._cache.pop(next(iter(self._cache)))
+            self.selected = archive
+            self.selected_name = name
         return archive
 
 
@@ -1921,6 +1945,35 @@ class ViewerHandler(BaseHTTPRequestHandler):
         self.do_GET()
 
     def do_GET(self):
+        try:
+            self._route_get()
+        except ClientInputError as exc:
+            self.send_json({"error": str(exc)}, 400)
+
+    def host_allowed(self):
+        """Reject non-local Host headers (DNS-rebinding protection). The Host
+        hostname must be an IP literal or "localhost"; DNS names are refused,
+        since a rebound name would resolve to this loopback server."""
+        host = (self.headers.get("Host") or "").strip().lower()
+        if not host:
+            return False
+        if host.startswith("[") and "]" in host:  # [::1]:port
+            name = host[1:host.index("]")]
+        elif ":" in host and host.rsplit(":", 1)[-1].isdigit():
+            name = host.rsplit(":", 1)[0]
+        else:
+            name = host
+        if name == "localhost":
+            return True
+        try:
+            ipaddress.ip_address(name)
+            return True
+        except ValueError:
+            return False
+
+    def _route_get(self):
+        if not self.host_allowed():
+            return self.send_json({"error": "forbidden host"}, 403)
         parsed = urlparse(self.path)
         path = parsed.path
         params = parse_qs(parsed.query)
@@ -1963,7 +2016,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
             archive = self.require_archive()
             if archive is None:
                 return
-            count = min(int(params.get("count", [PAGE_DEFAULT])[0]), PAGE_MAX)
+            count = min(int_param(params, "count", PAGE_DEFAULT), PAGE_MAX)
             filters = parse_filter_params(params)
             reverse = params.get("dir", ["asc"])[0] == "desc"
             if "anchor" in params:
@@ -1971,7 +2024,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
                 if payload is None:
                     return self.send_json({"error": "unknown message id"}, 404)
                 return self.send_json(payload)
-            start = int(params.get("start", [0])[0])
+            start = int_param(params, "start", 0)
             return self.send_json(archive.page_payload(start, count, filters, reverse))
 
         if path == "/api/resolve":
@@ -2001,8 +2054,8 @@ class ViewerHandler(BaseHTTPRequestHandler):
             archive = self.require_archive()
             if archive is None:
                 return
-            count = min(int(params.get("count", [60])[0]), PAGE_MAX)
-            start = int(params.get("start", [0])[0])
+            count = min(int_param(params, "count", 60), PAGE_MAX)
+            start = int_param(params, "start", 0)
             year = (params.get("year") or [None])[0]
             return self.send_json(archive.attachments_payload(start, count, year))
 

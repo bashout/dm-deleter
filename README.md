@@ -12,7 +12,7 @@ Bulk delete and archive your DM and server messages via the platform's unofficia
 | Archiving | Save a full chat — both sides, oldest first — as `messages.jsonl` + `attachments/`, streamed page by page |
 | Resume | Interrupted archives pick up where they stopped; partial writes are cleaned up automatically |
 | Attachments | Downloaded with atomic writes and retried on resume; runs that end early are flagged incomplete in `status.json` |
-| Viewer | Local web UI to browse archives: search, date/attachment/link filters, reply threading, media gallery, stats |
+| Viewer | Local web UI to browse archives: search, date/attachment/link filters, reply threading, media gallery, stats — launched from menu option `[5]` or `archive-viewer`, opens your browser automatically |
 | Config | Archive folder set via CLI arg, `DM_ARCHIVE_DIR`, or menu option `[4]`; per-OS default otherwise |
 
 ## Development
@@ -36,11 +36,9 @@ archive-viewer
 The tool prompts for your user token on start. Archives are written to your
 archive folder (one folder per chat); the viewer serves that folder.
 
-Build a standalone binary (PyInstaller, deleter only):
+Build a standalone binary (PyInstaller; includes the viewer):
 
 ```bash
 uv sync --extra build --locked
 uv run python build_exe.py
 ```
-
-Note: release binaries ship the deleter only; the viewer runs from source or a `pip install`.

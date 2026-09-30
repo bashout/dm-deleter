@@ -22,8 +22,8 @@ Bulk delete and archive your DM and server messages via the platform's unofficia
 Requires Python 3.8+. `requests` is the only runtime dependency.
 
 ```bash
-git clone https://github.com/bashout/dm-deleter.git
-cd dm-deleter
+git clone https://github.com/bashout/message-guillotine.git
+cd message-guillotine
 
 # Run with uv (pinned deps from uv.lock)
 uv run guillotine.py        # deleter / archiver

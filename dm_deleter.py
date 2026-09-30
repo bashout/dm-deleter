@@ -107,7 +107,8 @@ class MessageDeleter:
         return list(users.values())
     
     def get_channel_history(self, channel_id, limit=100):
-        """Fetch all messages from a channel (paginates backwards)."""
+        """Fetch all messages from a channel (paginates backwards).
+        Raises HistoryFetchError when a page cannot be fetched after retrying."""
         all_messages = []
         last_id = None
 
@@ -116,11 +117,8 @@ class MessageDeleter:
             if last_id:
                 params["before"] = last_id
 
-            resp = self.session.get(f"{API_BASE}/channels/{channel_id}/messages", params=params)
-
-            if resp.status_code != 200:
-                print(f"  Error fetching messages: {resp.status_code}")
-                break
+            resp = self._fetch_page_with_retries(
+                f"{API_BASE}/channels/{channel_id}/messages", params)
 
             messages = resp.json()
             if not messages:
@@ -756,8 +754,12 @@ def handle_dm_deletion(tool):
     
     channel_id = selected_user['channel_id']
     print(f"\nFetching messages from DM with {selected_user['username']}...")
-    
-    all_messages = tool.get_channel_history(channel_id, limit=100)
+
+    try:
+        all_messages = tool.get_channel_history(channel_id, limit=100)
+    except HistoryFetchError as exc:
+        print(f"Could not fetch channel history ({exc}).")
+        return
     print(f"Fetched {len(all_messages)} total messages from this DM.")
     
     my_messages = tool.filter_messages_in_range(all_messages, start_time, end_time, my_only=True)
@@ -801,8 +803,12 @@ def handle_server_deletion(tool):
     
     channel_id = selected_channel['id']
     print(f"\nFetching messages from #{selected_channel['name']}...")
-    
-    all_messages = tool.get_channel_history(channel_id, limit=100)
+
+    try:
+        all_messages = tool.get_channel_history(channel_id, limit=100)
+    except HistoryFetchError as exc:
+        print(f"Could not fetch channel history ({exc}).")
+        return
     print(f"Fetched {len(all_messages)} total messages from this channel.")
     
     filtered_messages = tool.filter_messages_in_range(all_messages, start_time, end_time, my_only=my_only)

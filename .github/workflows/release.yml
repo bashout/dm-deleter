@@ -14,16 +14,16 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            artifact: message-deleter-windows.exe
+            artifact: message-guillotine-windows.exe
             rename_ext: .exe
           - os: macos-latest
-            artifact: message-deleter-macos-arm64
+            artifact: message-guillotine-macos-arm64
             rename_ext: ""
           - os: macos-15-intel
-            artifact: message-deleter-macos-x86_64
+            artifact: message-guillotine-macos-x86_64
             rename_ext: ""
           - os: ubuntu-latest
-            artifact: message-deleter-linux
+            artifact: message-guillotine-linux
             rename_ext: ""
 
     steps:
@@ -45,7 +45,7 @@ jobs:
         shell: bash
         run: |
           cd dist
-          mv message-deleter${{ matrix.rename_ext }} ${{ matrix.artifact }}
+          mv message-guillotine${{ matrix.rename_ext }} ${{ matrix.artifact }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7

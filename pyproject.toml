@@ -3,9 +3,9 @@ requires = ["setuptools>=42"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "message-deleter"
+name = "message-guillotine"
 version = "0.3.0"
-description = "View and bulk delete direct messages"
+description = "Bulk delete and archive your own chat messages"
 requires-python = ">=3.8"
 dependencies = [
     "requests>=2.25.0",
@@ -15,9 +15,18 @@ dependencies = [
 build = [
     "pyinstaller>=6.0",
 ]
+dev = [
+    "pytest>=8.0",
+]
 
 [project.scripts]
-message-deleter = "dm_deleter:main"
+message-guillotine = "guillotine:main"
+archive-viewer = "archive_viewer:main"
 
 [tool.setuptools]
-py-modules = ["dm_deleter"]
+py-modules = ["guillotine", "archive_viewer"]
+packages = ["message_guillotine", "message_guillotine.viewer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

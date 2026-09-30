@@ -1,113 +1,54 @@
-# Message Bulk Deleter
+# Message Guillotine
 
-Bulk delete DM or server messages at 24/minute rate.
+![Message Guillotine](branding/message_guillotine_banner.jpg)
 
-**WARNING:** Self-bots violate the platform's Terms of Service. Use at your own risk.
+Bulk delete and archive your DM and server messages via the platform's unofficial user API (self-bot — violates the platform ToS, use at your own risk).
 
 ## Features
 
-- Delete your own messages from DMs or servers
-- Filter by user, channel, and time range
-- Rate-limited to 24 messages per minute (avoids bans)
-- Shows real-time progress with time remaining
+| Feature | Description |
+|---------|-------------|
+| DM deletion | Delete your own DM messages, filtered by user and time range |
+| Server deletion | Delete your messages (or all, with admin) from a server channel |
+| Rate limiting | 24 messages/minute with live progress and ETA |
+| Archiving | Save a full chat — both sides, oldest first — as `messages.jsonl` + `attachments/`, streamed page by page |
+| Resume | Interrupted archives pick up where they stopped; partial writes are cleaned up automatically |
+| Attachments | Downloaded with atomic writes and retried on resume; runs that end early are flagged incomplete in `status.json` |
+| Viewer | Local web UI to browse archives: search, date/attachment/link filters, reply threading, media gallery, stats — launched from menu option `[5]`, `archive-viewer`, or the CLI, opens your browser automatically (`archive-viewer --no-browser` to skip) |
+| Config | Archive folder set via `guillotine.py --archive-dir FOLDER`, `DM_ARCHIVE_DIR`, or menu option `[4]`; per-OS default otherwise |
 
-## Quick Start
+## Development
 
-### Download a prebuilt binary (no install needed)
-
-1. Go to the [Releases page](https://github.com/bashout/dm-deleter/releases).
-2. Download the file for your operating system:
-   - **Windows:** `message-deleter-windows.exe`
-   - **macOS (Apple Silicon):** `message-deleter-macos-arm64`
-   - **macOS (Intel):** `message-deleter-macos-x86_64`
-   - **Linux:** `message-deleter-linux`
-3. Double-click to run (Windows opens a terminal window automatically).
-
-**macOS / Linux note:** the first time you run it, grant execute permission and
-approve the "unidentified developer" prompt:
+Requires Python 3.8+. `requests` is the only runtime dependency.
 
 ```bash
-chmod +x message-deleter-macos-arm64
-./message-deleter-macos-arm64
-```
+git clone https://github.com/bashout/message-guillotine.git
+cd message-guillotine
 
-In Finder, right-click the binary → **Open** → **Open Anyway** to bypass
-Gatekeeper. Windows may show a SmartScreen warning the first time — click
-**More info** → **Run anyway**.
+# Run with uv (pinned deps from uv.lock)
+uv run guillotine.py                # deleter / archiver (--archive-dir FOLDER to set the archival folder)
+uv run archive_viewer.py            # archive viewer (localhost web UI; --host/--port/--no-browser)
 
-### Install with pipx (developers)
-
-```bash
-# Clone the repo
-git clone https://github.com/bashout/dm-deleter.git
-cd dm-deleter
-
-# Install
-pipx install .
-
-# Run
-message-deleter
-```
-
-### Run from source with uv
-
-Installs the exact pinned versions from `uv.lock`, and fetches a suitable
-Python for you:
-
-```bash
-git clone https://github.com/bashout/dm-deleter.git
-cd dm-deleter
-
-uv run dm_deleter.py
-```
-
-### Run directly with Python
-
-Requires Python 3.8 or newer.
-
-```bash
-# Install the project and its dependencies
+# Or install
 pip install .
-
-# Run
-python dm_deleter.py      # Windows
-python3 dm_deleter.py     # macOS / Linux
+message-guillotine
+archive-viewer
 ```
 
-## Getting Your Token
+The tool prompts for your user token on start. Archives are written to your
+archive folder (one folder per chat); the viewer serves that folder.
 
-**Browser:**
-1. Open the platform in Chrome/Edge (`https://discord.com/app`)
-2. Press `Ctrl+Shift+I` (or `F12`) to open DevTools
-3. Go to **Application** → **Local Storage** → `https://discord.com`
-4. Copy the value of the `token` field
+Run the tests (config resolution, archive format, archiver resume/retry,
+API filtering, viewer queries, and the HTTP server end to end):
 
-**Desktop App:**
 ```bash
-# Linux
-cat ~/.config/discord/Local\ Storage/https_discord.com_0.localstorage | grep -o '"token":"[^"]*"' | head -1 | cut -d'"' -f4
-
-# Windows (PowerShell)
-Select-String -Path "$env:APPDATA\discord\Local Storage\https_discord.com_0.localstorage" -Pattern '"token":"([^"]+)"' | Select -First 1 -Expand Matches | ForEach { $_.Groups[1].Value }
+uv sync --extra dev --locked
+uv run pytest
 ```
 
-## Usage
+Build a standalone binary (PyInstaller; includes the viewer):
 
-1. Run `message-deleter` or `python3 dm_deleter.py`
-2. Enter your user token
-3. Select mode: `[1]` DM or `[2]` Server
-4. Follow the prompts to select user/server/channel
-5. Set time range (leave blank for all messages)
-6. Confirm deletion
-
-## Rate Limiting
-
-- 24 messages per minute (1 every ~2.6 seconds)
-- Built-in delay prevents the platform from rate-limiting your account
-- Progress shows: `[5/240] Deleted: 5 | Failed: 0 | Elapsed: 00:13 | Remaining: 1d 02:15:00`
-
-## Notes
-
-- You can only delete messages **you** sent (unless in server mode with admin perms)
-- Deleted messages cannot be recovered
-- This uses the platform's unofficial user API
+```bash
+uv sync --extra build --locked
+uv run python build_exe.py
+```

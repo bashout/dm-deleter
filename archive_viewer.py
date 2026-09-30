@@ -2031,6 +2031,33 @@ class ViewerServer(ThreadingHTTPServer):
     daemon_threads = True
 
 
+def create_server(root, select_archive=None, host="127.0.0.1", port=8765):
+    """Create a viewer server for an archival folder (embedding entry point).
+
+    `select_archive` names a folder under `root` to open directly; when it is
+    missing or unknown the most recently modified archive is preselected
+    instead, matching main(). Binds to `port`, falling back to an ephemeral
+    port when it is already taken. Returns (server, url); the caller runs
+    server.serve_forever() (own thread or main) and server.shutdown() to stop.
+    """
+    root = Path(root)
+    library = ArchiveLibrary(root)
+    ViewerHandler.library = library
+    archives = find_archives(root)
+    if select_archive in {a["name"] for a in archives}:
+        library.select(select_archive)
+    elif archives:
+        library.select(archives[0]["name"])
+    try:
+        server = ViewerServer((host, port), ViewerHandler)
+    except OSError:
+        if port == 0:
+            raise
+        server = ViewerServer((host, 0), ViewerHandler)
+    bound_host, bound_port = server.server_address[:2]
+    return server, f"http://{bound_host}:{bound_port}/"
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Browse chat archives locally.")
     parser.add_argument(
@@ -2051,22 +2078,22 @@ def main(argv=None):
                   "falling back to the current directory", file=sys.stderr)
             root = Path.cwd()
 
-    library = ArchiveLibrary(root)
-    ViewerHandler.library = library
+    try:
+        server, url = create_server(root, select_archive=initial,
+                                    host=args.host, port=args.port)
+    except OSError as exc:
+        sys.exit(f"could not start the viewer: {exc}")
+
+    library = ViewerHandler.library
     print(f"Archival folder: {library.root}", file=sys.stderr)
     archives = find_archives(root)
     print(f"  {len(archives)} archive(s) found", file=sys.stderr)
-    if archives:
-        name = initial if initial in {a["name"] for a in archives} else archives[0]["name"]
-        print(f"Loading '{name}' ...", file=sys.stderr)
-        library.select(name)
+    if library.selected:
         print(f"  {len(library.selected.messages)} messages, "
               f"{len(library.selected.attachments)} attachments", file=sys.stderr)
     else:
         print("  nothing to serve yet; archive a chat first", file=sys.stderr)
-
-    server = ViewerServer((args.host, args.port), ViewerHandler)
-    print(f"Serving at http://{args.host}:{args.port}/ (Ctrl-C to stop)", file=sys.stderr)
+    print(f"Serving at {url} (Ctrl-C to stop)", file=sys.stderr)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

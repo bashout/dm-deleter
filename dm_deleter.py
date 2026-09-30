@@ -12,8 +12,12 @@ import json
 import re
 import os
 import sys
+import threading
+import webbrowser
 from datetime import datetime, timedelta
 from pathlib import Path
+
+import archive_viewer
 
 API_BASE = "https://discord.com/api/v10"  # Platform API endpoint
 RATE_LIMIT_DELAY = 2.6  # 24 messages per minute = ~2.5s each, use 2.6s for safety
@@ -653,6 +657,7 @@ def archive_chat(tool, channel_id, channel_label, archive_dir):
         compact_manifest(folder)
         mark_archive_status(folder, True)
         print(f"Done. {folder}/ now holds {count} messages.")
+        return folder
     except HistoryFetchError as exc:
         mark_archive_status(folder, False)
         print(f"\n\nFetch failed ({exc}); the archive is incomplete.")
@@ -660,6 +665,34 @@ def archive_chat(tool, channel_id, channel_label, archive_dir):
     except KeyboardInterrupt:
         mark_archive_status(folder, False)
         print(f"\n\nInterrupted. Rerun the archive for the same chat to resume: {folder}/")
+
+
+def browse_archives(focus_channel_id=None):
+    """Serve the archival folder in the local viewer and open it in the browser.
+    With focus_channel_id, the viewer opens directly on that chat's archive.
+    Blocks until the user presses Enter, then stops the server and returns."""
+    archive_dir = resolve_archive_dir()
+    select_name = None
+    if focus_channel_id:
+        focus = find_existing_archive(focus_channel_id, archive_dir)
+        if focus and (focus / "messages.jsonl").exists():
+            select_name = focus.name
+    try:
+        server, url = archive_viewer.create_server(archive_dir, select_archive=select_name)
+    except OSError as exc:
+        print(f"Could not start the viewer: {exc}")
+        return
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    print(f"\nViewer running at {url}")
+    webbrowser.open(url)
+    try:
+        input("Press Enter to stop the viewer and return to the menu... ")
+    except (KeyboardInterrupt, EOFError):
+        pass
+    server.shutdown()
+    server.server_close()
+    print("Viewer stopped.")
 
 
 def handle_archive(tool):
@@ -695,7 +728,9 @@ def handle_archive(tool):
     else:
         return
 
-    archive_chat(tool, channel_id, label, archive_dir)
+    folder = archive_chat(tool, channel_id, label, archive_dir)
+    if folder and input("\nOpen this archive in the viewer now? (y/N): ").strip().lower() == 'y':
+        browse_archives(focus_channel_id=channel_id)
 
 
 def handle_dm_deletion(tool):
@@ -807,10 +842,11 @@ def main():
         print("[2] Delete server messages")
         print("[3] Archive a chat (JSONL + attachments, no deletion)")
         print("[4] Set archive folder")
+        print("[5] Browse archives in the viewer")
         print("[0] Cancel")
 
         try:
-            mode = int(input("Mode (0-4): ").strip())
+            mode = int(input("Mode (0-5): ").strip())
         except ValueError:
             print("Invalid selection.")
             return
@@ -826,6 +862,8 @@ def main():
             return
         elif mode == 4:
             configure_archive_dir(archive_dir)
+        elif mode == 5:
+            browse_archives()
         else:
             print("Cancelled.")
             return

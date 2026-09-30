@@ -18,6 +18,7 @@ build = [
 
 [project.scripts]
 message-deleter = "dm_deleter:main"
+archive-viewer = "archive_viewer:main"
 
 [tool.setuptools]
-py-modules = ["dm_deleter"]
+py-modules = ["dm_deleter", "archive_viewer"]

@@ -7,7 +7,7 @@ import urllib.request
 
 import pytest
 
-from message_deleter.viewer.server import ClientInputError, create_server, int_param
+from message_guillotine.viewer.server import ClientInputError, create_server, int_param
 
 
 @pytest.fixture

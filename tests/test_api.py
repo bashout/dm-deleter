@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from message_deleter.api import HistoryFetchError, MessageDeleter
+from message_guillotine.api import HistoryFetchError, MessageGuillotine
 
 
 class FakeResponse:
@@ -32,7 +32,7 @@ class FakeSession:
 
 
 def make_tool(responses):
-    tool = MessageDeleter.__new__(MessageDeleter)  # no real session/headers
+    tool = MessageGuillotine.__new__(MessageGuillotine)  # no real session/headers
     tool.session = FakeSession(responses)
     tool.current_user = {"id": "7", "username": "me", "discriminator": "0001"}
     tool.dm_channels = []

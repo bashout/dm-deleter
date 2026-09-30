@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from message_deleter import archive_format, archiver
-from message_deleter.api import HistoryFetchError
+from message_guillotine import archive_format, archiver
+from message_guillotine.api import HistoryFetchError
 from tests.conftest import make_archive
 
 
@@ -22,7 +22,7 @@ def api_message(i, attachments=()):
 
 
 class FakeTool:
-    """MessageDeleter stand-in: yields canned history, no network."""
+    """MessageGuillotine stand-in: yields canned history, no network."""
 
     def __init__(self, messages, fail_urls=(), fail_on=None):
         self.messages = sorted(messages, key=lambda m: int(m["id"]))
@@ -114,7 +114,7 @@ def test_archive_chat_retries_failed_attachment(tmp_path):
 
 
 def test_archive_chat_marks_incomplete_on_fetch_failure(tmp_path):
-    from message_deleter import archive_format
+    from message_guillotine import archive_format
 
     archive_dir = tmp_path / "archives"
     tool = FakeTool([api_message(1), api_message(2), api_message(3)], fail_on=1)

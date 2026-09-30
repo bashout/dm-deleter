@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from message_deleter import cli
+from message_guillotine import cli
 
 
 def test_parse_datetime_blank_is_none(monkeypatch):

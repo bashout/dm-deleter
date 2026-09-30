@@ -2,7 +2,7 @@
 """
 Build a standalone executable with PyInstaller.
 
-Produces a single-file console binary named `message-deleter`
+Produces a single-file console binary named `message-guillotine`
 (plus the OS-specific extension) in dist/.
 """
 
@@ -16,10 +16,10 @@ ICON = Path(__file__).parent / "branding" / "icon.ico"
 
 def build():
     args = [
-        "dm_deleter.py",
+        "guillotine.py",
         "--onefile",
         "--console",
-        "--name", "message-deleter",
+        "--name", "message-guillotine",
         "--clean",
         "--noconfirm",
     ]

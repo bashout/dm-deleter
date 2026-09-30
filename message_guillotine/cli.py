@@ -4,18 +4,18 @@ Delete YOUR messages from DMs or servers at 24/min rate.
 Uses the platform's unofficial user API (self-bot).
 WARNING: Self-bots violate the platform ToS. Use at your own risk.
 
-Entry point: dm_deleter.py"""
+Entry point: guillotine.py"""
 
 
 import threading
 import webbrowser
 from datetime import datetime, timedelta
 
-from message_deleter.api import HistoryFetchError, MessageDeleter
-from message_deleter.archive_format import find_existing_archive
-from message_deleter.archiver import archive_chat
-from message_deleter.config import configure_archive_dir, resolve_archive_dir
-from message_deleter.viewer.server import create_server
+from message_guillotine.api import HistoryFetchError, MessageGuillotine
+from message_guillotine.archive_format import find_existing_archive
+from message_guillotine.archiver import archive_chat
+from message_guillotine.config import configure_archive_dir, resolve_archive_dir
+from message_guillotine.viewer.server import create_server
 
 
 def parse_datetime(prompt):
@@ -281,7 +281,7 @@ def handle_server_deletion(tool):
 
 def main():
     print("="*80)
-    print("MESSAGE BULK DELETER")
+    print("MESSAGE GUILLOTINE")
     print("Delete messages from DMs or servers at 24/min rate")
     print("WARNING: Self-bots violate the platform ToS. Use at your own risk.")
     print("="*80)
@@ -291,7 +291,7 @@ def main():
         print("No token provided. Exiting.")
         return
     
-    tool = MessageDeleter(token)
+    tool = MessageGuillotine(token)
     
     if not tool.get_current_user():
         print("Invalid token or authentication failed.")

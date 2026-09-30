@@ -7,8 +7,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from message_deleter.api import ATTACHMENT_DELAY, HistoryFetchError
-from message_deleter.archive_format import (
+from message_guillotine.api import ATTACHMENT_DELAY, HistoryFetchError
+from message_guillotine.archive_format import (
     find_existing_archive,
     load_message_records,
     mark_archive_status,

@@ -1,6 +1,6 @@
 """Platform API client for the deleter and archiver.
 
-MessageDeleter wraps the platform's unofficial user API: session setup,
+MessageGuillotine wraps the platform's unofficial user API: session setup,
 channel/guild listing, paginated history with retries, deletion with rate
 limiting, and streaming attachment downloads."""
 
@@ -25,7 +25,7 @@ class HistoryFetchError(Exception):
     is incomplete instead of treating an early stop as a finished run."""
 
 
-class MessageDeleter:
+class MessageGuillotine:
     def __init__(self, token):
         self.token = token
         self.session = requests.Session()

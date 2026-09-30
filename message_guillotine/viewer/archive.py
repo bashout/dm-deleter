@@ -1,7 +1,7 @@
 """Archive loading, filtering, search, and API payload builders.
 
 Only the archive folder is read; nothing from the deleter side is imported.
-The on-disk layout is documented in message_deleter.archive_format."""
+The on-disk layout is documented in message_guillotine.archive_format."""
 
 
 import bisect

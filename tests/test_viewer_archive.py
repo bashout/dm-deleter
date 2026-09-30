@@ -3,7 +3,7 @@
 import json
 import os
 
-from message_deleter.viewer import archive as viewer_archive
+from message_guillotine.viewer import archive as viewer_archive
 from tests.conftest import attachment_entry, make_archive, message_record
 
 

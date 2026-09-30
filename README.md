@@ -1,4 +1,6 @@
-# Message Deleter
+# Message Guillotine
+
+![Message Guillotine](branding/message_guillotine_banner.jpg)
 
 Bulk delete and archive your DM and server messages via the platform's unofficial user API (self-bot — violates the platform ToS, use at your own risk).
 
@@ -24,12 +26,12 @@ git clone https://github.com/bashout/dm-deleter.git
 cd dm-deleter
 
 # Run with uv (pinned deps from uv.lock)
-uv run dm_deleter.py        # deleter / archiver
+uv run guillotine.py        # deleter / archiver
 uv run archive_viewer.py    # archive viewer (localhost web UI)
 
 # Or install
 pip install .
-message-deleter
+message-guillotine
 archive-viewer
 ```
 

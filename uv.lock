@@ -241,7 +241,7 @@ wheels = [
 ]
 
 [[package]]
-name = "message-deleter"
+name = "message-guillotine"
 version = "0.3.0"
 source = { editable = "." }
 dependencies = [

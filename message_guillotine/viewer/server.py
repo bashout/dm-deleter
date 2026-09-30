@@ -10,7 +10,7 @@ Usage:
 Serves the configured archival folder (one folder per archived chat) with a
 selector for choosing which archive to view. A single archive folder
 argument is served with its siblings. With no path, the archival folder is
-resolved the same way the archiver resolves it (see message_deleter.config)."""
+resolved the same way the archiver resolves it (see message_guillotine.config)."""
 
 
 import argparse
@@ -23,9 +23,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from message_deleter.config import resolve_archive_dir
-from message_deleter.viewer.archive import Archive, find_archives, parse_filter_params
-from message_deleter.viewer.frontend import APP_JS, INDEX_HTML, STYLE_CSS
+from message_guillotine.config import resolve_archive_dir
+from message_guillotine.viewer.archive import Archive, find_archives, parse_filter_params
+from message_guillotine.viewer.frontend import APP_JS, INDEX_HTML, STYLE_CSS
 
 
 PAGE_DEFAULT = 50

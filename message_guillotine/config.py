@@ -15,12 +15,12 @@ def app_config_dir():
     archival folder). Cross-platform safe: no hardcoded absolute paths."""
     home = Path.home()
     if sys.platform == "darwin":
-        return home / "Library" / "Application Support" / "message-deleter"
+        return home / "Library" / "Application Support" / "message-guillotine"
     if os.name == "nt":
         base = os.environ.get("APPDATA") or str(home / "AppData" / "Roaming")
-        return Path(base) / "message-deleter"
+        return Path(base) / "message-guillotine"
     base = os.environ.get("XDG_DATA_HOME") or str(home / ".local" / "share")
-    return Path(base) / "message-deleter"
+    return Path(base) / "message-guillotine"
 
 
 def resolve_archive_dir(explicit=None):

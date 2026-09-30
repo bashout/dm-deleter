@@ -3,7 +3,7 @@
 import json
 import os
 
-from message_deleter import archive_format
+from message_guillotine import archive_format
 
 
 def test_minimal_message_projects_fields():

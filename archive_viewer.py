@@ -20,8 +20,7 @@ archival folder is resolved the same way the archiver resolves it:
 DM_ARCHIVE_DIR environment variable, then the app config file, then the
 per-OS default (~/.local/share/message-deleter/archives on Linux,
 ~/Library/Application Support/message-deleter/archives on macOS,
-%APPDATA%\\message-deleter\\archives on Windows). A pre-rename data folder
-is still honored if it is the only one that exists.
+%APPDATA%\\message-deleter\\archives on Windows).
 
 The viewer UI (HTML/CSS/JS) is embedded below, so this single file is
 self-contained.
@@ -1792,21 +1791,15 @@ def find_archives(root):
 
 
 def app_config_dir():
-    """Per-OS application data directory, matching the archiver's resolution.
-
-    The pre-rename data folder is returned when only it exists, so archives
-    and config written by older versions keep working."""
+    """Per-OS application data directory, matching the archiver's resolution."""
     home = Path.home()
     if sys.platform == "darwin":
-        base = home / "Library" / "Application Support"
-    elif os.name == "nt":
-        base = Path(os.environ.get("APPDATA") or str(home / "AppData" / "Roaming"))
-    else:
-        base = Path(os.environ.get("XDG_DATA_HOME") or str(home / ".local" / "share"))
-    config_dir = base / "message-deleter"
-    if not config_dir.exists() and (base / "discord-deleter").exists():
-        return base / "discord-deleter"  # pre-rename data folder
-    return config_dir
+        return home / "Library" / "Application Support" / "message-deleter"
+    if os.name == "nt":
+        base = os.environ.get("APPDATA") or str(home / "AppData" / "Roaming")
+        return Path(base) / "message-deleter"
+    base = os.environ.get("XDG_DATA_HOME") or str(home / ".local" / "share")
+    return Path(base) / "message-deleter"
 
 
 def resolve_archive_dir(explicit=None):

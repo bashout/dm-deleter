@@ -18,9 +18,10 @@ selector for choosing which archive to view. If a single archive folder is
 passed, it serves that archive and its siblings. If no path is given, the
 archival folder is resolved the same way the archiver resolves it:
 DM_ARCHIVE_DIR environment variable, then the app config file, then the
-per-OS default (~/.local/share/discord-deleter/archives on Linux,
-~/Library/Application Support/discord-deleter/archives on macOS,
-%APPDATA%\\discord-deleter\\archives on Windows).
+per-OS default (~/.local/share/message-deleter/archives on Linux,
+~/Library/Application Support/message-deleter/archives on macOS,
+%APPDATA%\\message-deleter\\archives on Windows). A pre-rename data folder
+is still honored if it is the only one that exists.
 
 The viewer UI (HTML/CSS/JS) is embedded below, so this single file is
 self-contained.
@@ -1608,7 +1609,7 @@ class Archive:
         for index in ordered[start:start + count]:
             message = self.messages[index]
             item = dict(message)
-            item["seq"] = index  # position in the archive, not Discord id
+            item["seq"] = index  # position in the archive, not the platform message id
             item["attachments"] = [
                 view
                 for view in (self.attachment_view(a) for a in message.get("attachment_ids") or [])
@@ -1791,15 +1792,21 @@ def find_archives(root):
 
 
 def app_config_dir():
-    """Per-OS application data directory, matching the archiver's resolution."""
+    """Per-OS application data directory, matching the archiver's resolution.
+
+    The pre-rename data folder is returned when only it exists, so archives
+    and config written by older versions keep working."""
     home = Path.home()
     if sys.platform == "darwin":
-        return home / "Library" / "Application Support" / "discord-deleter"
-    if os.name == "nt":
-        base = os.environ.get("APPDATA") or str(home / "AppData" / "Roaming")
-        return Path(base) / "discord-deleter"
-    base = os.environ.get("XDG_DATA_HOME") or str(home / ".local" / "share")
-    return Path(base) / "discord-deleter"
+        base = home / "Library" / "Application Support"
+    elif os.name == "nt":
+        base = Path(os.environ.get("APPDATA") or str(home / "AppData" / "Roaming"))
+    else:
+        base = Path(os.environ.get("XDG_DATA_HOME") or str(home / ".local" / "share"))
+    config_dir = base / "message-deleter"
+    if not config_dir.exists() and (base / "discord-deleter").exists():
+        return base / "discord-deleter"  # pre-rename data folder
+    return config_dir
 
 
 def resolve_archive_dir(explicit=None):

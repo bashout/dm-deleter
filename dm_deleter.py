@@ -306,15 +306,21 @@ def sanitize_filename(name, fallback="file"):
 
 def app_config_dir():
     """Per-OS application data directory (holds config.json and the default
-    archival folder). Cross-platform safe: no hardcoded absolute paths."""
+    archival folder). Cross-platform safe: no hardcoded absolute paths.
+
+    The pre-rename data folder is returned when only it exists, so archives
+    and config written by older versions keep working."""
     home = Path.home()
     if sys.platform == "darwin":
-        return home / "Library" / "Application Support" / "discord-deleter"
-    if os.name == "nt":
-        base = os.environ.get("APPDATA") or str(home / "AppData" / "Roaming")
-        return Path(base) / "discord-deleter"
-    base = os.environ.get("XDG_DATA_HOME") or str(home / ".local" / "share")
-    return Path(base) / "discord-deleter"
+        base = home / "Library" / "Application Support"
+    elif os.name == "nt":
+        base = Path(os.environ.get("APPDATA") or str(home / "AppData" / "Roaming"))
+    else:
+        base = Path(os.environ.get("XDG_DATA_HOME") or str(home / ".local" / "share"))
+    config_dir = base / "message-deleter"
+    if not config_dir.exists() and (base / "discord-deleter").exists():
+        return base / "discord-deleter"  # pre-rename data folder
+    return config_dir
 
 
 def resolve_archive_dir(explicit=None):

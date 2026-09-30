@@ -14,8 +14,8 @@ Bulk delete and archive your DM and server messages via the platform's unofficia
 | Archiving | Save a full chat — both sides, oldest first — as `messages.jsonl` + `attachments/`, streamed page by page |
 | Resume | Interrupted archives pick up where they stopped; partial writes are cleaned up automatically |
 | Attachments | Downloaded with atomic writes and retried on resume; runs that end early are flagged incomplete in `status.json` |
-| Viewer | Local web UI to browse archives: search, date/attachment/link filters, reply threading, media gallery, stats — launched from menu option `[5]` or `archive-viewer`, opens your browser automatically |
-| Config | Archive folder set via CLI arg, `DM_ARCHIVE_DIR`, or menu option `[4]`; per-OS default otherwise |
+| Viewer | Local web UI to browse archives: search, date/attachment/link filters, reply threading, media gallery, stats — launched from menu option `[5]`, `archive-viewer`, or the CLI, opens your browser automatically (`archive-viewer --no-browser` to skip) |
+| Config | Archive folder set via `guillotine.py --archive-dir FOLDER`, `DM_ARCHIVE_DIR`, or menu option `[4]`; per-OS default otherwise |
 
 ## Development
 
@@ -26,8 +26,8 @@ git clone https://github.com/bashout/message-guillotine.git
 cd message-guillotine
 
 # Run with uv (pinned deps from uv.lock)
-uv run guillotine.py        # deleter / archiver
-uv run archive_viewer.py    # archive viewer (localhost web UI)
+uv run guillotine.py                # deleter / archiver (--archive-dir FOLDER to set the archival folder)
+uv run archive_viewer.py            # archive viewer (localhost web UI; --host/--port/--no-browser)
 
 # Or install
 pip install .

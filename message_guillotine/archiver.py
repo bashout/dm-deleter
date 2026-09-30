@@ -65,7 +65,20 @@ def archive_chat(tool, channel_id, channel_label, archive_dir):
         print(f"\nResuming archive: {folder}/ ({len(archived_ids)} messages already saved{note})")
     else:
         date_part = datetime.now().strftime("%d-%m-%y")
-        folder = archive_dir / f"{sanitize_filename(channel_label, 'chat')}-archive-{date_part}"
+        # Non-ASCII labels (emoji, Cyrillic, CJK, ...) all sanitize to the
+        # same empty name, so chats would collide on one folder per day:
+        # fall back to the channel id (a GUID) to keep them apart.
+        label_part = sanitize_filename(channel_label, "") or f"chat-{channel_id}"
+        folder = archive_dir / f"{label_part}-archive-{date_part}"
+        # Same trap with ASCII labels: a same-named folder may already hold a
+        # different chat. Never overwrite it — disambiguate with the channel id.
+        if folder.exists():
+            try:
+                existing = json.loads((folder / "meta.json").read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                existing = {}
+            if existing.get("channel_id") != channel_id:
+                folder = archive_dir / f"{label_part}-{channel_id}-archive-{date_part}"
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "meta.json").write_text(
             json.dumps({"channel_id": channel_id, "chat": channel_label}) + "\n",
@@ -105,7 +118,11 @@ def archive_chat(tool, channel_id, channel_label, archive_dir):
                 nonlocal seq, saved, failed
                 att_dir.mkdir(exist_ok=True)
                 seq += 1
-                dest = att_dir / f"{seq:04d}_{message_id}_{sanitize_filename(att.get('filename', 'attachment'))}"
+                # Non-ASCII filenames sanitize to nothing; fall back to the
+                # attachment id (a GUID) instead of a shared "file" name.
+                safe_name = sanitize_filename(att.get("filename") or "",
+                                              f"att-{att_key(att)}")
+                dest = att_dir / f"{seq:04d}_{message_id}_{safe_name}"
                 size = tool.download_attachment(att.get("url"), dest)
                 entry = manifest_entry(att, message_id, dest, size)
                 mf.write(json.dumps(entry) + "\n")

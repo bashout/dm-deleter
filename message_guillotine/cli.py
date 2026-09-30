@@ -7,6 +7,7 @@ WARNING: Self-bots violate the platform ToS. Use at your own risk.
 Entry point: guillotine.py"""
 
 
+import argparse
 import threading
 import webbrowser
 from datetime import datetime, timedelta
@@ -124,11 +125,11 @@ def select_guild_channel(tool):
         return None
 
 
-def browse_archives(focus_channel_id=None):
+def browse_archives(focus_channel_id=None, archive_dir=None):
     """Serve the archival folder in the local viewer and open it in the browser.
     With focus_channel_id, the viewer opens directly on that chat's archive.
     Blocks until the user presses Enter, then stops the server and returns."""
-    archive_dir = resolve_archive_dir()
+    archive_dir = resolve_archive_dir(archive_dir)
     select_name = None
     if focus_channel_id:
         focus = find_existing_archive(focus_channel_id, archive_dir)
@@ -152,9 +153,9 @@ def browse_archives(focus_channel_id=None):
     print("Viewer stopped.")
 
 
-def handle_archive(tool):
+def handle_archive(tool, archive_dir=None):
     """Handle chat archiving (JSONL + attachments, nothing is deleted)."""
-    archive_dir = resolve_archive_dir()
+    archive_dir = resolve_archive_dir(archive_dir)
     print("\n" + "="*80)
     print("ARCHIVE A CHAT")
     print(f"Archival folder: {archive_dir}")
@@ -187,7 +188,7 @@ def handle_archive(tool):
 
     folder = archive_chat(tool, channel_id, label, archive_dir)
     if folder and input("\nOpen this archive in the viewer now? (y/N): ").strip().lower() == 'y':
-        browse_archives(focus_channel_id=channel_id)
+        browse_archives(focus_channel_id=channel_id, archive_dir=archive_dir)
 
 
 def handle_dm_deletion(tool):
@@ -279,26 +280,39 @@ def handle_server_deletion(tool):
     tool.delete_with_rate_limit(filtered_messages, channel_id)
 
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="message-guillotine",
+        description="Delete and archive your DM and server messages "
+                     "(self-bot — violates the platform ToS, use at your own risk).")
+    parser.add_argument("--archive-dir", metavar="FOLDER",
+                        help="archival folder for archives and the viewer "
+                             "(overrides DM_ARCHIVE_DIR and the config file; "
+                             "menu option [4] can still change it in-session)")
+    args = parser.parse_args(argv)
+
     print("="*80)
     print("MESSAGE GUILLOTINE")
     print("Delete messages from DMs or servers at 24/min rate")
     print("WARNING: Self-bots violate the platform ToS. Use at your own risk.")
     print("="*80)
-    
+
     token = input("Enter your user token: ").strip()
     if not token:
         print("No token provided. Exiting.")
         return
-    
+
     tool = MessageGuillotine(token)
-    
+
     if not tool.get_current_user():
         print("Invalid token or authentication failed.")
         return
-    
+
+    # The --archive-dir override stays in effect until the user picks a
+    # different folder in-session (menu option [4]), which then wins.
+    cli_archive_dir = args.archive_dir
     while True:
-        archive_dir = resolve_archive_dir()
+        archive_dir = resolve_archive_dir(cli_archive_dir)
         print("\n" + "="*80)
         print("SELECT MODE")
         print(f"Archival folder: {archive_dir}")
@@ -323,12 +337,14 @@ def main():
             handle_server_deletion(tool)
             return
         elif mode == 3:
-            handle_archive(tool)
+            handle_archive(tool, archive_dir=cli_archive_dir)
             return
         elif mode == 4:
-            configure_archive_dir(archive_dir)
+            new_dir = configure_archive_dir(archive_dir)
+            if new_dir != archive_dir:
+                cli_archive_dir = None  # the in-session choice replaces the CLI arg
         elif mode == 5:
-            browse_archives()
+            browse_archives(archive_dir=cli_archive_dir)
         else:
             print("Cancelled.")
             return

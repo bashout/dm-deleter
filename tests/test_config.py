@@ -8,6 +8,13 @@ import pytest
 
 from message_guillotine import config
 
+# Faking another platform means monkeypatching os.name, which pathlib reads at
+# Path() call time: on Windows that tries to instantiate PosixPath and raises.
+# The _posix tests below therefore only run on POSIX (and the Windows test
+# only on Windows).
+posix_only = pytest.mark.skipif(
+    os.name == "nt", reason="pathlib cannot fake PosixPath on Windows")
+
 
 def _posix(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "platform", "linux")
@@ -15,6 +22,7 @@ def _posix(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
 
 
+@posix_only
 def test_app_config_dir_linux(monkeypatch, tmp_path):
     _posix(monkeypatch, tmp_path)
     assert config.app_config_dir() == tmp_path / "message-guillotine"
@@ -41,6 +49,7 @@ def test_resolve_prefers_explicit_over_env(monkeypatch, tmp_path):
     assert config.resolve_archive_dir(str(tmp_path / "explicit")) == tmp_path / "explicit"
 
 
+@posix_only
 def test_resolve_env_over_config(monkeypatch, tmp_path):
     _posix(monkeypatch, tmp_path)
     config_dir = tmp_path / "message-guillotine"
@@ -51,6 +60,7 @@ def test_resolve_env_over_config(monkeypatch, tmp_path):
     assert config.resolve_archive_dir() == tmp_path / "env"
 
 
+@posix_only
 def test_resolve_config_file_over_default(monkeypatch, tmp_path):
     _posix(monkeypatch, tmp_path)
     config_dir = tmp_path / "message-guillotine"
@@ -60,6 +70,7 @@ def test_resolve_config_file_over_default(monkeypatch, tmp_path):
     assert config.resolve_archive_dir() == tmp_path / "file"
 
 
+@posix_only
 def test_resolve_default(monkeypatch, tmp_path):
     _posix(monkeypatch, tmp_path)
     assert config.resolve_archive_dir() == tmp_path / "message-guillotine" / "archives"
@@ -70,6 +81,7 @@ def test_configure_blank_keeps_current(monkeypatch, tmp_path):
     assert config.configure_archive_dir(tmp_path / "current") == tmp_path / "current"
 
 
+@posix_only
 def test_configure_persists_to_config_file(monkeypatch, tmp_path):
     _posix(monkeypatch, tmp_path)
     new_dir = tmp_path / "new"

@@ -31,6 +31,16 @@ def fetch(url, path, host="localhost"):
         return error.code, error.headers.get("Content-Type"), error.read()
 
 
+def fetch_headers(url, path, host="localhost"):
+    """Like fetch, but also returns the response headers."""
+    request = urllib.request.Request(url + path, headers={"Host": host})
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return response.status, response.headers.get("Content-Type"), response.read(), response.headers
+    except urllib.error.HTTPError as error:
+        return error.code, error.headers.get("Content-Type"), error.read(), error.headers
+
+
 def test_serves_embedded_ui(server_url):
     status, ctype, body = fetch(server_url, "/")
     assert status == 200 and "text/html" in ctype and body.startswith(b"<!DOCTYPE html>")
@@ -91,6 +101,49 @@ def test_stats_years_and_attachments(server_url):
 def test_media_serving(server_url):
     status, ctype, body = fetch(server_url, "/media/0001_4_pic.png")
     assert status == 200 and "image/png" in ctype and body == b"\x89PNGdata"
+    _, _, _, headers = fetch_headers(server_url, "/media/0001_4_pic.png")
+    assert headers.get("Content-Disposition") == "inline"
+    assert headers.get("X-Content-Type-Options") == "nosniff"
+
+
+def test_media_unsafe_types_are_downloads(server_url, archive):
+    # An html (or svg, xml, pdf, ...) attachment must not render inline in the
+    # viewer's origin: it would run script with access to every archive.
+    (archive / "attachments" / "evil.html").write_text("<script>fetch('/api/stats')</script>")
+    status, ctype, body = fetch(server_url, "/media/evil.html")
+    assert status == 200 and "text/html" in ctype
+    _, _, _, headers = fetch_headers(server_url, "/media/evil.html")
+    assert headers["Content-Disposition"].startswith("attachment")
+    assert headers["Content-Security-Policy"] == "sandbox"
+    _, _, _, headers = fetch_headers(server_url, "/media/0001_4_pic.png?download=1")
+    assert headers["Content-Disposition"].startswith("attachment")
+
+
+def test_head_requests_carry_headers_but_no_body(server_url):
+    request = urllib.request.Request(server_url + "/", method="HEAD",
+                                     headers={"Host": "localhost"})
+    with urllib.request.urlopen(request, timeout=5) as response:
+        assert response.status == 200
+        assert int(response.headers["Content-Length"]) > 0
+        assert response.read() == b""  # no body on HEAD
+
+
+def test_archive_pin_keeps_tabs_independent(server_url, archive, tmp_path):
+    from tests.conftest import make_archive, message_record
+
+    other = make_archive(tmp_path, name="other", channel_id="43", chat="other-chat",
+                         records=[message_record(1, content="other message")])
+    # Both archives are addressable at once via ?archive=, without any
+    # shared "selected" state flipping between them.
+    _, _, body = fetch(server_url, f"/api/messages?archive={archive.name}")
+    assert json.loads(body)["total"] == 5
+    _, _, body = fetch(server_url, f"/api/messages?archive={other.name}")
+    assert json.loads(body)["total"] == 1
+    assert json.loads(body)["messages"][0]["content"] == "other message"
+    assert fetch(server_url, "/api/messages?archive=nope")[0] == 404
+    # The selection is untouched by pinned requests.
+    _, _, body = fetch(server_url, "/api/archives")
+    assert json.loads(body)["selected"] == archive.name
 
 
 def test_media_traversal_refused(server_url):

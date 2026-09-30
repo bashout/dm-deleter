@@ -57,5 +57,29 @@ def test_select_dm_user_cancel(monkeypatch):
 
 def test_main_without_token_exits(monkeypatch, capsys):
     monkeypatch.setattr("builtins.input", lambda _: "")
-    cli.main()  # must return, not raise
+    cli.main([])  # must return, not raise
     assert "No token provided" in capsys.readouterr().out
+
+
+def test_main_accepts_archive_dir_arg(monkeypatch, tmp_path, capsys):
+    # The --archive-dir CLI arg reaches resolve_archive_dir as its explicit arg.
+    seen = {}
+
+    def fake_resolve(explicit=None):
+        seen.setdefault("calls", []).append(explicit)
+        return tmp_path / "resolved"
+
+    class StubTool:
+        def __init__(self, token):
+            pass
+
+        def get_current_user(self):
+            return True
+
+    monkeypatch.setattr(cli, "resolve_archive_dir", fake_resolve)
+    monkeypatch.setattr(cli, "MessageGuillotine", StubTool)
+    answers = iter(["token", "0"])  # token, then cancel at the mode menu
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+    cli.main(["--archive-dir", str(tmp_path / "cli")])
+    assert seen["calls"][0] == str(tmp_path / "cli")  # resolve_archive_dir converts to Path
+    assert "Archival folder" in capsys.readouterr().out

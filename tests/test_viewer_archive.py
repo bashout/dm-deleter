@@ -158,6 +158,23 @@ def test_parse_filter_params_flags():
     assert filters == (None, None, True, True)
 
 
+def test_parse_filter_params_normalizes_offsets_to_utc():
+    filters = viewer_archive.parse_filter_params(
+        {"from": ["2026-01-02T12:00:00+02:00"], "to": ["2026-01-03T01:00:00Z"]})
+    assert filters[0] == "2026-01-02T10:00:00+00:00"
+    assert filters[1] == "2026-01-03T01:00:00+00:00"
+
+
+def test_parse_filter_params_naive_timestamp_taken_as_utc():
+    filters = viewer_archive.parse_filter_params({"from": ["2026-01-02T12:00:00"]})
+    assert filters[0] == "2026-01-02T12:00:00+00:00"
+
+
+def test_parse_filter_params_unparseable_passthrough():
+    filters = viewer_archive.parse_filter_params({"from": ["nonsense"]})
+    assert filters[0] == "nonsense"
+
+
 def test_find_archives_requires_meta_and_messages(tmp_path):
     make_archive(tmp_path, name="good", records=[message_record(1)])
     bad = make_archive(tmp_path, name="no-messages")

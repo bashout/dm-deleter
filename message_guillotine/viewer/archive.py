@@ -9,6 +9,7 @@ import json
 import mimetypes
 import re
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -320,9 +321,13 @@ def parse_filter_params(params):
 
     Returns (date_from, date_to, has_attachment, has_link). Dates accept either
     YYYY-MM-DD or a full ISO timestamp; a bare end date includes that whole day.
+    Archive timestamps are uniform UTC ISO strings compared lexically, so full
+    ISO timestamps are normalized to UTC first (a "+02:00" timestamp would
+    otherwise sort wrongly against the archive's "+00:00" strings); a naive
+    timestamp is taken as UTC.
     """
-    date_from = (params.get("from") or [None])[0]
-    date_to = (params.get("to") or [None])[0]
+    date_from = _utc_iso((params.get("from") or [None])[0])
+    date_to = _utc_iso((params.get("to") or [None])[0])
     if date_to and len(date_to) == 10:
         date_to += "T23:59:59.999999+00:00"
     has_attachment = (params.get("has_attachment") or ["false"])[0] == "true"
@@ -330,6 +335,21 @@ def parse_filter_params(params):
     if date_from or date_to or has_attachment or has_link:
         return (date_from, date_to, has_attachment, has_link)
     return None
+
+
+def _utc_iso(value):
+    """A bare YYYY-MM-DD passes through; a full ISO timestamp comes back as a
+    UTC ISO string. Unparseable values pass through unchanged (they simply
+    match nothing)."""
+    if not value or len(value) == 10:
+        return value
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return value
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat()
 
 
 def find_archives(root):

@@ -16,6 +16,7 @@ RATE_LIMIT_DELAY = 2.6  # 24 messages per minute = ~2.5s each, use 2.6s for safe
 ATTACHMENT_DELAY = 0.05  # Politeness delay between CDN downloads (CDN is not API rate limited)
 FETCH_RETRIES = 5  # attempts per page before the archive run is marked incomplete
 FETCH_RETRY_DELAY = 5  # seconds to wait between retries of a failed page fetch
+REQUEST_TIMEOUT = (10, 30)  # (connect, read) seconds per HTTP request; no request may hang forever
 
 
 class HistoryFetchError(Exception):
@@ -39,7 +40,7 @@ class MessageGuillotine:
         
     def get_current_user(self):
         """Fetch current user information."""
-        resp = self.session.get(f"{API_BASE}/users/@me")
+        resp = self.session.get(f"{API_BASE}/users/@me", timeout=REQUEST_TIMEOUT)
         if resp.status_code == 200:
             self.current_user = resp.json()
             print(f"Logged in as: {self.current_user['username']}#{self.current_user['discriminator']} (ID: {self.current_user['id']})")
@@ -50,7 +51,7 @@ class MessageGuillotine:
     
     def get_dm_channels(self):
         """Get all DM channels."""
-        resp = self.session.get(f"{API_BASE}/users/@me/channels")
+        resp = self.session.get(f"{API_BASE}/users/@me/channels", timeout=REQUEST_TIMEOUT)
         if resp.status_code == 200:
             self.dm_channels = resp.json()
             return True
@@ -60,7 +61,7 @@ class MessageGuillotine:
     
     def get_guilds(self):
         """Get all guilds (servers) the user is in."""
-        resp = self.session.get(f"{API_BASE}/users/@me/guilds")
+        resp = self.session.get(f"{API_BASE}/users/@me/guilds", timeout=REQUEST_TIMEOUT)
         if resp.status_code == 200:
             self.guilds = resp.json()
             return True
@@ -70,7 +71,7 @@ class MessageGuillotine:
     
     def get_guild_channels(self, guild_id):
         """Get all text channels in a guild."""
-        resp = self.session.get(f"{API_BASE}/guilds/{guild_id}/channels")
+        resp = self.session.get(f"{API_BASE}/guilds/{guild_id}/channels", timeout=REQUEST_TIMEOUT)
         if resp.status_code == 200:
             return [c for c in resp.json() if c.get('type') in (0, 5, 10, 11, 12)]  # Text, News, etc.
         else:
@@ -155,7 +156,7 @@ class MessageGuillotine:
         last_error = "unknown error"
         for attempt in range(1, FETCH_RETRIES + 1):
             try:
-                resp = self.session.get(url, params=params)
+                resp = self.session.get(url, params=params, timeout=REQUEST_TIMEOUT)
             except requests.RequestException as exc:
                 last_error = f"network error: {exc}"
             else:
@@ -194,7 +195,7 @@ class MessageGuillotine:
     
     def delete_message(self, channel_id, message_id):
         """Delete a single message."""
-        resp = self.session.delete(f"{API_BASE}/channels/{channel_id}/messages/{message_id}")
+        resp = self.session.delete(f"{API_BASE}/channels/{channel_id}/messages/{message_id}", timeout=REQUEST_TIMEOUT)
         return resp.status_code in (200, 204)
 
     def download_attachment(self, url, dest_path):

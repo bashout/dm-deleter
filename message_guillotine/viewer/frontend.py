@@ -582,6 +582,7 @@ const els = {
 };
 
 const state = {
+  archiveName: null,   // pinned archive folder: sent with every API/media request
   total: 0,            // unfiltered message count
   viewTotal: 0,        // message count in the current filtered view
   start: 0,            // offset of the first loaded message within the view
@@ -603,9 +604,21 @@ const AUTHOR_COLORS = ["#5865f2", "#3ba55c", "#faa61a", "#ed4245", "#eb459e",
 // ---------------------------------------------------------------------------
 
 async function api(path) {
+  // Pin the archive on every call so two tabs can view two archives at once
+  // (the server's "selected" archive is only a fallback).
+  if (state.archiveName) {
+    path += (path.includes("?") ? "&" : "?") +
+      "archive=" + encodeURIComponent(state.archiveName);
+  }
   const res = await fetch(path);
   if (!res.ok) throw new Error(`${path} -> ${res.status}`);
   return res.json();
+}
+
+function mediaUrl(url) {
+  if (!state.archiveName) return url;
+  return url + (url.includes("?") ? "&" : "?") +
+    "archive=" + encodeURIComponent(state.archiveName);
 }
 
 function authorColor(id) {
@@ -824,31 +837,32 @@ function linkifyInto(target, text) {
 }
 
 function attachmentNode(att) {
+  const url = mediaUrl(att.url);
   const ext = extOf(att.filename);
   if (IMAGE_EXT.includes(ext)) {
     const img = el("img", "thumb");
     img.loading = "lazy";
-    img.src = att.url;
+    img.src = url;
     img.alt = att.filename;
-    img.addEventListener("click", () => openLightbox("img", att.url, att.filename));
+    img.addEventListener("click", () => openLightbox("img", url, att.filename));
     return img;
   }
   if (VIDEO_EXT.includes(ext)) {
     const v = el("video");
     v.controls = true;
     v.preload = "metadata";
-    v.src = att.url;
+    v.src = url;
     return v;
   }
   if (AUDIO_EXT.includes(ext)) {
     const a = el("audio");
     a.controls = true;
     a.preload = "metadata";
-    a.src = att.url;
+    a.src = url;
     return a;
   }
   const chip = el("a", "file-chip");
-  chip.href = att.url + "?download=1";
+  chip.href = url + (url.includes("?") ? "&" : "?") + "download=1";
   chip.download = att.filename;
   chip.appendChild(el("span", null, att.filename));
   chip.appendChild(el("span", "size", fmtSize(att.size)));
@@ -867,7 +881,10 @@ function renderMessages(list, mode) {
     }
   }
   const frag = document.createDocumentFragment();
-  let prev = mode === "prepend" ? null : state.loaded[state.loaded.length - 1];
+  // For a prepended block the "previous" message is the oldest one already on
+  // screen: without it, the first prepended message always drew a duplicate
+  // day divider when it fell on the same day as the loaded top message.
+  let prev = mode === "prepend" ? state.loaded[0] : state.loaded[state.loaded.length - 1];
   for (const msg of list) {
     const node = messageNode(msg, prev || null);
     if (!prev || !sameDay(prev.timestamp, msg.timestamp)) {
@@ -1081,37 +1098,38 @@ function yearSection(yearInfo) {
 
 function galleryItem(att) {
   const item = el("div", "g-item");
+  const url = mediaUrl(att.url);
   const ext = extOf(att.filename);
   if (IMAGE_EXT.includes(ext)) {
     const img = el("img");
     img.loading = "lazy";
     img.decoding = "async";
-    img.src = att.url;
+    img.src = url;
     img.alt = att.filename;
     item.appendChild(img);
-    item.addEventListener("click", () => openLightbox("img", att.url, att.filename));
+    item.addEventListener("click", () => openLightbox("img", url, att.filename));
   } else if (VIDEO_EXT.includes(ext)) {
     const v = el("video");
     v.preload = "metadata";
     v.muted = true;
-    v.src = att.url;
+    v.src = url;
     item.appendChild(v);
     item.appendChild(el("span", "g-kind", ext));
-    item.addEventListener("click", () => openLightbox("video", att.url, att.filename));
+    item.addEventListener("click", () => openLightbox("video", url, att.filename));
   } else if (AUDIO_EXT.includes(ext)) {
     item.appendChild(el("div", "g-file", ext.toUpperCase()));
     const a = el("audio");
     a.controls = true;
-    a.src = att.url;
+    a.src = url;
     item.appendChild(a);
-    item.addEventListener("click", () => openLightbox("audio", att.url, att.filename));
+    item.addEventListener("click", () => openLightbox("audio", url, att.filename));
   } else {
     const file = el("div", "g-file");
     file.appendChild(el("div", "g-name", att.filename));
     file.appendChild(el("div", null, fmtSize(att.size)));
     item.appendChild(file);
     item.appendChild(el("span", "g-kind", ext || "file"));
-    item.addEventListener("click", () => window.open(att.url + "?download=1", "_blank"));
+    item.addEventListener("click", () => window.open(url + (url.includes("?") ? "&" : "?") + "download=1", "_blank"));
   }
   if (att.message_id) {
     const jump = el("button", "g-jump", "chat");
@@ -1254,7 +1272,7 @@ els.archiveSelect.addEventListener("change", async () => {
   const name = els.archiveSelect.value;
   if (!name) return;
   const meta = await api("/api/select?archive=" + encodeURIComponent(name));
-  await applyArchive(meta);
+  await applyArchive(meta, name);
 });
 els.archiveSelect.addEventListener("focus", async () => {
   // Pick up archives added after the viewer started (cheap request).
@@ -1319,9 +1337,10 @@ async function loadArchiveList() {
   return list;
 }
 
-async function applyArchive(meta) {
+async function applyArchive(meta, name) {
   // Full reset of per-archive state, then reload the current view.
   state.epoch++;
+  state.archiveName = name;
   state.total = meta.total_messages;
   state.viewTotal = 0;
   state.start = 0;
@@ -1367,9 +1386,10 @@ async function applyArchive(meta) {
   if (name !== list.selected) {
     await api("/api/select?archive=" + encodeURIComponent(name));
   }
+  state.archiveName = name;
   els.archiveSelect.value = name;
   const meta = await api("/api/meta");
-  await applyArchive(meta);
+  await applyArchive(meta, name);
 })();
 '''
 

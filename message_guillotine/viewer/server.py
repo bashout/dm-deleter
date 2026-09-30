@@ -19,6 +19,7 @@ import json
 import re
 import sys
 import threading
+import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -54,8 +55,9 @@ def int_param(params, name, default):
 
 
 class ArchiveLibrary:
-    """The archival folder and the archives inside it. One archive is loaded
-    at a time; a couple of recently used ones stay cached in memory."""
+    """The archival folder and the archives inside it. One archive is
+    selected at a time for archive-less requests; a couple of recently
+    used ones stay cached in memory."""
 
     CACHE_MAX = 2
 
@@ -66,7 +68,9 @@ class ArchiveLibrary:
         self.selected = None
         self.selected_name = None
 
-    def select(self, name):
+    def load(self, name):
+        """The Archive for a bare folder name, or None if it is not an archive
+        folder. Loads and caches on first use; does not change the selection."""
         folder = self.root / name
         # Only bare child names are accepted: this rejects traversal ("..",
         # embedded separators) without resolving, so symlinked archive folders work.
@@ -81,6 +85,13 @@ class ArchiveLibrary:
             self._cache[name] = archive
             while len(self._cache) > self.CACHE_MAX:
                 self._cache.pop(next(iter(self._cache)))
+            return archive
+
+    def select(self, name):
+        archive = self.load(name)
+        if archive is None:
+            return None
+        with self._lock:
             self.selected = archive
             self.selected_name = name
         return archive
@@ -106,7 +117,26 @@ class ViewerHandler(BaseHTTPRequestHandler):
             self.send_json({"error": "no archive selected"}, 409)
         return archive
 
+    def request_archive(self, params):
+        """The archive for this request: the ?archive= pin when given, else
+        the currently selected one. Lets each browser tab keep its own
+        archive independently of the shared selection. None after an error."""
+        name = (params.get("archive") or [None])[0]
+        if not name:
+            return self.require_archive()
+        archive = self.library.load(name)
+        if archive is None:
+            self.send_json({"error": "unknown archive"}, 404)
+        return archive
+
     # -- helpers ------------------------------------------------------------
+
+    def write_body(self, body):
+        """Write a response body unless this is a HEAD request: HEAD replies
+        carry headers (and Content-Length) only, and a body would desync
+        keep-alive connection framing."""
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def send_json(self, obj, status=200):
         body = json.dumps(obj).encode("utf-8")
@@ -115,7 +145,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(body)
+        self.write_body(body)
 
     def send_bytes(self, body, mime):
         self.send_response(200)
@@ -123,18 +153,26 @@ class ViewerHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(body)
+        self.write_body(body)
 
-    def send_media(self, fs_path, mime, download_name=None):
-        """Serve a file with single-range support so <video>/<audio> can seek."""
+    def send_media(self, fs_path, mime, name=None, download=False):
+        """Serve a file with single-range support so <video>/<audio> can seek.
+
+        Only plain media (image/video/audio, except SVG) is rendered inline.
+        Everything else — html, svg, xml, pdf, whatever the archive happens to
+        hold — is served as a download, because an archived file that renders
+        in the viewer's origin would run its script with access to every
+        archive the server exposes."""
         try:
             size = fs_path.stat().st_size
         except OSError:
             return self.send_json({"error": "not found"}, 404)
 
-        disposition = "inline"
-        if download_name:
-            disposition = 'attachment; filename="%s"' % download_name.replace('"', "")
+        inline = mime.startswith(("image/", "video/", "audio/")) and mime != "image/svg+xml"
+        if download or not inline:
+            disposition = 'attachment; filename="%s"' % (name or fs_path.name).replace('"', "")
+        else:
+            disposition = "inline"
 
         range_header = self.headers.get("Range")
         start, end = 0, size - 1
@@ -162,6 +200,8 @@ class ViewerHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(length))
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Disposition", disposition)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Security-Policy", "sandbox")
         if status == 206:
             self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
         self.end_headers()
@@ -244,13 +284,13 @@ class ViewerHandler(BaseHTTPRequestHandler):
             return self.send_json(payload)
 
         if path == "/api/meta":
-            archive = self.require_archive()
+            archive = self.request_archive(params)
             if archive is None:
                 return
             return self.send_json(archive.meta_payload())
 
         if path == "/api/messages":
-            archive = self.require_archive()
+            archive = self.request_archive(params)
             if archive is None:
                 return
             count = min(int_param(params, "count", PAGE_DEFAULT), PAGE_MAX)
@@ -265,14 +305,14 @@ class ViewerHandler(BaseHTTPRequestHandler):
             return self.send_json(archive.page_payload(start, count, filters, reverse))
 
         if path == "/api/resolve":
-            archive = self.require_archive()
+            archive = self.request_archive(params)
             if archive is None:
                 return
             ids = params.get("ids", [""])[0].split(",")[:100]
             return self.send_json(archive.resolve_payload(ids))
 
         if path == "/api/search":
-            archive = self.require_archive()
+            archive = self.request_archive(params)
             if archive is None:
                 return
             query = params.get("q", [""])[0].strip()
@@ -282,13 +322,13 @@ class ViewerHandler(BaseHTTPRequestHandler):
             return self.send_json(archive.search_payload(query, author, parse_filter_params(params)))
 
         if path == "/api/attachment-years":
-            archive = self.require_archive()
+            archive = self.request_archive(params)
             if archive is None:
                 return
             return self.send_json({"years": archive.attachment_year_counts()})
 
         if path == "/api/attachments":
-            archive = self.require_archive()
+            archive = self.request_archive(params)
             if archive is None:
                 return
             count = min(int_param(params, "count", 60), PAGE_MAX)
@@ -297,13 +337,13 @@ class ViewerHandler(BaseHTTPRequestHandler):
             return self.send_json(archive.attachments_payload(start, count, year))
 
         if path == "/api/stats":
-            archive = self.require_archive()
+            archive = self.request_archive(params)
             if archive is None:
                 return
             return self.send_json(archive.stats_payload())
 
         if path.startswith("/media/"):
-            archive = self.require_archive()
+            archive = self.request_archive(params)
             if archive is None:
                 return
             name = path[len("/media/"):]
@@ -311,8 +351,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
             if fs_path is None:
                 return self.send_json({"error": "not found"}, 404)
             mime = archive.attachment_mime(name)
-            download = "download" in params
-            return self.send_media(fs_path, mime, download_name=name if download else None)
+            return self.send_media(fs_path, mime, name=name, download="download" in params)
 
         return self.send_json({"error": "not found"}, 404)
 
@@ -356,6 +395,8 @@ def main(argv=None):
              "(default: the configured archival folder)")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--no-browser", action="store_true",
+                        help="print the URL instead of opening the browser")
     args = parser.parse_args(argv)
 
     target = Path(args.folder).expanduser() if args.folder else resolve_archive_dir()
@@ -384,6 +425,8 @@ def main(argv=None):
     else:
         print("  nothing to serve yet; archive a chat first", file=sys.stderr)
     print(f"Serving at {url} (Ctrl-C to stop)", file=sys.stderr)
+    if not args.no_browser:
+        webbrowser.open(url)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -136,3 +136,39 @@ def test_archive_chat_separate_folder_per_channel(tmp_path):
     assert second != first
     meta = json.loads((second / "meta.json").read_text(encoding="utf-8"))
     assert meta["channel_id"] == "43"
+
+
+def test_archive_chat_non_ascii_label_falls_back_to_channel_id(tmp_path):
+    # Cyrillic/emoji labels all sanitize to nothing: the channel id keeps
+    # different chats in different folders instead of jumbling them together.
+    archive_dir = tmp_path / "archives"
+    first = archiver.archive_chat(FakeTool([api_message(1)]), "1001", "Дорогой", archive_dir)
+    second = archiver.archive_chat(FakeTool([api_message(1)]), "1002", "Дорогая", archive_dir)
+    assert first != second
+    assert first.name.startswith("chat-1001-archive-")
+    assert second.name.startswith("chat-1002-archive-")
+
+
+def test_archive_chat_same_name_same_day_no_clobber(tmp_path):
+    # Two different ASCII chats that sanitize to the same name on the same
+    # day must not overwrite each other's meta.json.
+    archive_dir = tmp_path / "archives"
+    first = archiver.archive_chat(FakeTool([api_message(1)]), "42", "My Chat", archive_dir)
+    second = archiver.archive_chat(FakeTool([api_message(1)]), "43", "My Chat!", archive_dir)
+    assert second != first
+    assert json.loads((first / "meta.json").read_text(encoding="utf-8"))["channel_id"] == "42"
+    assert json.loads((second / "meta.json").read_text(encoding="utf-8"))["channel_id"] == "43"
+
+
+def test_attachment_filename_falls_back_to_attachment_id(tmp_path):
+    messages = [{
+        "id": "1",
+        "author": {"id": "7", "username": "alice", "global_name": "Alice"},
+        "timestamp": "2026-01-01T00:00:00+00:00",
+        "content": "msg 1",
+        "attachments": [{"id": "a9", "filename": "картинка",
+                         "url": "https://cdn.example/1"}],
+    }]
+    folder = archiver.archive_chat(FakeTool(messages), "42", "chat", tmp_path / "archives")
+    saved = [p.name for p in (folder / "attachments").iterdir()]
+    assert saved == ["0001_1_att-a9"]  # GUID fallback, not a shared "file" name

@@ -22,3 +22,4 @@ archive-viewer = "archive_viewer:main"
 
 [tool.setuptools]
 py-modules = ["dm_deleter", "archive_viewer"]
+packages = ["message_deleter", "message_deleter.viewer"]

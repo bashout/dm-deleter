@@ -36,6 +36,14 @@ archive-viewer
 The tool prompts for your user token on start. Archives are written to your
 archive folder (one folder per chat); the viewer serves that folder.
 
+Run the tests (config resolution, archive format, archiver resume/retry,
+API filtering, viewer queries, and the HTTP server end to end):
+
+```bash
+uv sync --extra dev --locked
+uv run pytest
+```
+
 Build a standalone binary (PyInstaller; includes the viewer):
 
 ```bash

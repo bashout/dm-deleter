@@ -13,7 +13,11 @@ import webbrowser
 from datetime import datetime, timedelta
 
 from message_guillotine.api import HistoryFetchError, MessageGuillotine
-from message_guillotine.archive_format import find_existing_archive
+from message_guillotine.archive_format import (
+    find_existing_archive,
+    list_archives,
+    read_meta,
+)
 from message_guillotine.archiver import archive_chat
 from message_guillotine.config import configure_archive_dir, resolve_archive_dir
 from message_guillotine.viewer.server import create_server
@@ -153,6 +157,53 @@ def browse_archives(focus_channel_id=None, archive_dir=None):
     print("Viewer stopped.")
 
 
+def pick_merge_target(channel_id, archive_dir):
+    """Offer merging into an existing archive when the chat has no archive of
+    its own. Returns the chosen folder path, or None to start a new archive.
+    Returns False when the user cancels the archive run entirely."""
+    if find_existing_archive(channel_id, archive_dir) is not None:
+        return None  # this chat already has an archive: it resumes automatically
+    others = list_archives(archive_dir)
+    if not others:
+        return None
+
+    print("\n" + "="*80)
+    print("NO PREVIOUS ARCHIVE FOR THIS CHAT")
+    print("="*80)
+    print("[1] Start a new archive (default)")
+    print("[2] Merge into an existing archive")
+    print("[0] Cancel")
+
+    try:
+        choice = int(input("Select (0-2): ").strip())
+    except ValueError:
+        print("Invalid selection.")
+        return None
+    if choice == 0:
+        return False
+    if choice != 2:
+        return None
+
+    print("\n" + "="*80)
+    print("MERGE INTO AN EXISTING ARCHIVE")
+    print("="*80)
+    for i, path in enumerate(others, 1):
+        meta = read_meta(path)
+        chat = meta.get("chat") or path.name
+        channel = meta.get("channel_id") or "?"
+        print(f"[{i}] {chat} (channel ID: {channel})")
+    print("\n[0] Cancel")
+
+    try:
+        choice = int(input("Select archive (number): ").strip())
+        if choice == 0:
+            return False
+        return others[choice - 1]
+    except (ValueError, IndexError):
+        print("Invalid selection.")
+        return False
+
+
 def handle_archive(tool, archive_dir=None):
     """Handle chat archiving (JSONL + attachments, nothing is deleted)."""
     archive_dir = resolve_archive_dir(archive_dir)
@@ -186,7 +237,12 @@ def handle_archive(tool, archive_dir=None):
     else:
         return
 
-    folder = archive_chat(tool, channel_id, label, archive_dir)
+    merge_target = pick_merge_target(str(channel_id), archive_dir)
+    if merge_target is False:
+        print("Cancelled.")
+        return
+    folder = archive_chat(tool, channel_id, label, archive_dir,
+                          merge_target=merge_target)
     if folder and input("\nOpen this archive in the viewer now? (y/N): ").strip().lower() == 'y':
         browse_archives(focus_channel_id=channel_id, archive_dir=archive_dir)
 

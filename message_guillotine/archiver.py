@@ -14,6 +14,9 @@ from message_guillotine.archive_format import (
     mark_archive_status,
     minimal_message,
     read_archive_status,
+    read_channel_cursors,
+    read_meta,
+    write_meta,
 )
 
 
@@ -46,23 +49,109 @@ def compact_manifest(folder):
     return list(latest.values())
 
 
-def archive_chat(tool, channel_id, channel_label, archive_dir):
+def sort_message_records(folder):
+    """Rewrite messages.jsonl in message-id order (ids are chronological
+    snowflakes), so a merged archive still reads newest-last in the viewer.
+    Atomic — written to a temp file and renamed into place — and skipped when
+    the file is already sorted."""
+    path = folder / "messages.jsonl"
+    if not path.exists():
+        return
+    records = load_message_records(path)
+    ids = [int(r["id"]) for r in records]
+    if ids == sorted(ids):
+        return
+    records.sort(key=lambda r: int(r["id"]))
+    tmp_path = path.with_name(path.name + ".part")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        for record in records:
+            f.write(json.dumps(record) + "\n")
+    tmp_path.replace(path)
+
+
+def register_merged_channel(folder, channel_id):
+    """Record channel_id as one of the channels archived in folder (a merge),
+    with a resume cursor of 0 until its messages land — so even a hard kill
+    mid-merge leaves a resumable archive. A legacy single-channel target also
+    gets its original channel's cursor seeded from its newest record, keeping
+    that channel's future resumes incremental."""
+    folder = Path(folder)
+    meta = read_meta(folder)
+    ids = meta.get("channel_ids")
+    if not isinstance(ids, list):
+        ids = [str(meta["channel_id"])] if meta.get("channel_id") else []
+    ids = [str(i) for i in ids]
+    if channel_id not in ids:
+        ids.append(channel_id)
+    cursors = meta.get("channel_cursors")
+    if not isinstance(cursors, dict):
+        cursors = {}
+        records = load_message_records(folder / "messages.jsonl")
+        if records and ids and ids[0] != channel_id:
+            cursors[ids[0]] = max(records, key=lambda r: int(r["id"]))["id"]
+    meta["channel_ids"] = ids
+    cursors.setdefault(channel_id, "0")
+    meta["channel_cursors"] = cursors
+    write_meta(folder, meta)
+
+
+def update_channel_cursor(folder, channel_id, last_id):
+    """Advance the channel's resume cursor to last_id (the newest message
+    archived for it this run). No-op on archives without cursors."""
+    if last_id is None:
+        return
+    meta = read_meta(folder)
+    cursors = meta.get("channel_cursors")
+    if not isinstance(cursors, dict):
+        return
+    cursors[channel_id] = str(last_id)
+    write_meta(folder, meta)
+
+
+def archive_chat(tool, channel_id, channel_label, archive_dir, merge_target=None):
     """Archive the chat as a stream: fetch forward from the beginning of the
     conversation, write each message as it arrives, and resume an existing archive
-    directory for this channel if one is already present."""
+    directory for this channel if one is already present. With merge_target (an
+    existing archive folder), a chat that has no archive of its own is merged into
+    that folder instead of starting a new one."""
     channel_id = str(channel_id)
     archive_dir = Path(archive_dir)
     folder = find_existing_archive(channel_id, archive_dir)
     resumed = folder is not None
+    last_id = None  # newest message id archived for this channel this run
     if folder:
         records = load_message_records(folder / "messages.jsonl")
         archived_ids = {r["id"] for r in records}
-        after_id = records[-1]["id"] if records else "0"
+        cursors = read_channel_cursors(folder)
+        if channel_id in cursors:
+            after_id = cursors[channel_id]
+        elif cursors:
+            # merged archive, but this channel has no cursor yet: full fetch,
+            # the id set keeps any overlap out
+            after_id = "0"
+        else:
+            after_id = records[-1]["id"] if records else "0"
         entries = compact_manifest(folder)
         recorded = {e["attachment_id"]: e for e in entries}
         seq = max((e["seq"] for e in entries), default=0)
         note = "" if read_archive_status(folder) is not False else " (previous run did not finish)"
         print(f"\nResuming archive: {folder}/ ({len(archived_ids)} messages already saved{note})")
+    elif merge_target is not None:
+        folder = Path(merge_target)
+        if not (folder / "meta.json").is_file() or not (folder / "messages.jsonl").is_file():
+            print(f"\nCannot merge into {folder}: not a valid archive.")
+            return None
+        records = load_message_records(folder / "messages.jsonl")
+        archived_ids = {r["id"] for r in records}
+        # A different channel's history shares no message ids with the target;
+        # fetch it from the beginning and let the id set drop any overlap.
+        after_id = read_channel_cursors(folder).get(channel_id, "0")
+        entries = compact_manifest(folder)
+        recorded = {e["attachment_id"]: e for e in entries}
+        seq = max((e["seq"] for e in entries), default=0)
+        register_merged_channel(folder, channel_id)
+        print(f"\nMerging into existing archive: {folder}/ "
+              f"({len(archived_ids)} messages already saved)")
     else:
         date_part = datetime.now().strftime("%d-%m-%y")
         # Non-ASCII labels (emoji, Cyrillic, CJK, ...) all sanitize to the
@@ -147,6 +236,7 @@ def archive_chat(tool, channel_id, channel_label, archive_dir):
 
             for msg in tool.iter_channel_history(channel_id, after_id=after_id):
                 if msg["id"] in archived_ids:
+                    last_id = msg["id"]  # already archived: the cursor may advance
                     continue
 
                 for att in msg.get("attachments") or []:
@@ -158,18 +248,25 @@ def archive_chat(tool, channel_id, channel_label, archive_dir):
                 mf.flush()
                 jf.flush()
                 archived_ids.add(msg["id"])
+                last_id = msg["id"]
                 count = len(archived_ids)
                 print(f"\r[{count} msgs] this run: {saved} saved, {failed} failed", end='')
 
         print()
         compact_manifest(folder)
+        sort_message_records(folder)
+        update_channel_cursor(folder, channel_id, last_id)
         mark_archive_status(folder, True)
         print(f"Done. {folder}/ now holds {count} messages.")
         return folder
     except HistoryFetchError as exc:
+        sort_message_records(folder)
         mark_archive_status(folder, False)
+        update_channel_cursor(folder, channel_id, last_id)
         print(f"\n\nFetch failed ({exc}); the archive is incomplete.")
         print(f"Rerun the archive for the same chat to resume: {folder}/")
     except KeyboardInterrupt:
+        sort_message_records(folder)
         mark_archive_status(folder, False)
+        update_channel_cursor(folder, channel_id, last_id)
         print(f"\n\nInterrupted. Rerun the archive for the same chat to resume: {folder}/")

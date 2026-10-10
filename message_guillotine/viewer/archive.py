@@ -25,6 +25,12 @@ class Archive:
         self.folder = Path(folder)
         self.meta = self._load_json(self.folder / "meta.json", default={})
         self.messages = self._load_jsonl(self.folder / "messages.jsonl")
+        # A hard kill during a merge can leave messages.jsonl unsorted (the
+        # archiver sorts only on graceful exits); ids are chronological
+        # snowflakes, so sort at load to keep the archive readable meanwhile.
+        if any(int(later["id"]) < int(earlier["id"])
+               for earlier, later in zip(self.messages, self.messages[1:])):
+            self.messages.sort(key=lambda m: int(m["id"]))
         self.index_by_id = {m["id"]: i for i, m in enumerate(self.messages)}
         self.attachments_by_id = {}
         for entry in self._load_jsonl(self.folder / "manifest.jsonl"):

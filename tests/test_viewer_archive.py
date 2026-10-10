@@ -208,3 +208,11 @@ def test_find_archives_newest_first_and_chat_fallback(tmp_path):
 
 def test_find_archives_missing_root(tmp_path):
     assert viewer_archive.find_archives(tmp_path / "nope") == []
+
+
+def test_load_sorts_hard_killed_unsorted_archive(tmp_path):
+    from tests.conftest import make_archive
+
+    records = [message_record(1), message_record(3), message_record(2)]
+    viewer = load(make_archive(tmp_path, records=records))
+    assert [m["id"] for m in viewer.messages] == ["1", "2", "3"]

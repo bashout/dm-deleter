@@ -283,7 +283,9 @@ class MessageGuillotine:
         """Delete messages at 24 per minute with progress.
 
         A 429 backs off for the server's Retry-After and retries the same
-        message (bounded). A 403 for a message the API can never delete
+        message (bounded); if the retries are exhausted the run aborts —
+        the server is still rate limiting, so every remaining delete would
+        burn the same backoff and fail. A 403 for a message the API can never delete
         (a system message such as a call or pin notification, platform
         code 50021) skips just that message and the run continues. Any
         other 401/403 aborts the run outright: every remaining delete
@@ -339,6 +341,13 @@ class MessageGuillotine:
                 break
             else:
                 failed += 1  # rate limited through every attempt
+                print(
+                    f"\n\nStopping: still rate limited after {DELETE_RETRIES} attempts. "
+                    f"Every remaining delete would fail the same way; rerun "
+                    f"later to delete the rest.")
+                print(f"Deleted {deleted}/{total} before stopping; "
+                      f"{total - deleted - failed - skipped} messages left.")
+                return
 
             # Calculate time remaining
             remaining = (total - i) * RATE_LIMIT_DELAY

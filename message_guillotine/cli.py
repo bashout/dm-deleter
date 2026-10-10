@@ -167,22 +167,27 @@ def pick_merge_target(channel_id, archive_dir):
     if not others:
         return None
 
-    print("\n" + "="*80)
-    print("NO PREVIOUS ARCHIVE FOR THIS CHAT")
-    print("="*80)
-    print("[1] Start a new archive (default)")
-    print("[2] Merge into an existing archive")
-    print("[0] Cancel")
+    while True:
+        print("\n" + "="*80)
+        print("NO PREVIOUS ARCHIVE FOR THIS CHAT")
+        print("="*80)
+        print("[1] Start a new archive (default)")
+        print("[2] Merge into an existing archive")
+        print("[0] Cancel")
 
-    try:
-        choice = int(input("Select (0-2): ").strip())
-    except ValueError:
-        print("Invalid selection.")
-        return None
-    if choice == 0:
-        return False
-    if choice != 2:
-        return None
+        try:
+            choice = int(input("Select (0-2): ").strip())
+        except ValueError:
+            print("Invalid selection.")
+            continue
+        if choice == 0:
+            return False
+        if choice == 1:
+            return None
+        if choice != 2:
+            print("Invalid selection.")
+            continue
+        break
 
     print("\n" + "="*80)
     print("MERGE INTO AN EXISTING ARCHIVE")
@@ -194,14 +199,18 @@ def pick_merge_target(channel_id, archive_dir):
         print(f"[{i}] {chat} (channel ID: {channel})")
     print("\n[0] Cancel")
 
-    try:
-        choice = int(input("Select archive (number): ").strip())
+    while True:
+        try:
+            choice = int(input("Select archive (number): ").strip())
+        except ValueError:
+            print("Invalid selection.")
+            continue
         if choice == 0:
             return False
+        if not 1 <= choice <= len(others):
+            print("Invalid selection.")
+            continue
         return others[choice - 1]
-    except (ValueError, IndexError):
-        print("Invalid selection.")
-        return False
 
 
 def handle_archive(tool, archive_dir=None):

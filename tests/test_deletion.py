@@ -207,3 +207,13 @@ def test_delete_403_other_codes_still_abort(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "Stopping" in out
     assert "Missing Permissions (code 50013)" in out
+
+
+def test_delete_exhausted_429_aborts_run(monkeypatch, capsys):
+    tool = make_tool([FakeResponse(429, {"Retry-After": "2"})] * 3 + [204])
+    sleeps = run_delete(monkeypatch, tool, 2)
+    assert len(tool.session.calls) == 3  # three attempts on the same message, then abort
+    assert len(sleeps) == 3  # backoff after each 429, no pace sleep after the abort
+    out = capsys.readouterr().out
+    assert "still rate limited" in out
+    assert "1 messages left" in out

@@ -128,11 +128,18 @@ def test_pick_merge_target_cancel_at_archive_list_aborts_run(monkeypatch, tmp_pa
     assert cli.pick_merge_target("43", tmp_path) is False
 
 
-def test_pick_merge_target_invalid_pick_aborts_run(monkeypatch, tmp_path):
-    _make_archive(tmp_path)
-    answers = iter(["2", "9"])
+def test_pick_merge_target_invalid_pick_reprompts(monkeypatch, tmp_path):
+    folder = _make_archive(tmp_path)
+    answers = iter(["9", "x", "2", "1"])
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
-    assert cli.pick_merge_target("43", tmp_path) is False
+    assert cli.pick_merge_target("43", tmp_path) == folder
+
+
+def test_pick_merge_target_invalid_first_choice_reprompts(monkeypatch, tmp_path):
+    folder = _make_archive(tmp_path)
+    answers = iter(["7", "nonsense", "2", "1"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+    assert cli.pick_merge_target("43", tmp_path) == folder
 
 
 def test_pick_merge_target_no_other_archives(monkeypatch, tmp_path):

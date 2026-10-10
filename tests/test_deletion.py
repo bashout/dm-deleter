@@ -138,3 +138,72 @@ def test_server_deletion_deletes_only_own_messages(monkeypatch):
     captured = _run_server_deletion(monkeypatch, iter(["1", "1", "", ""]), tool)
     assert [m["id"] for m in captured["msgs"]] == ["1"]  # only mine, never others'
     assert captured["channel_id"] == "c1"
+
+
+def test_delete_403_reports_platform_error_body(monkeypatch, capsys):
+    class PermissionErrorResponse(FakeResponse):
+        def __init__(self):
+            super().__init__(403)
+            self._body = {"message": "Missing Permissions", "code": 50013}
+
+        def json(self):
+            return self._body
+
+    tool = make_tool([PermissionErrorResponse()])
+    run_delete(monkeypatch, tool, 1)
+    out = capsys.readouterr().out
+    assert "Missing Permissions (code 50013)" in out
+
+
+def test_session_headers_mimic_web_client():
+    import base64 as b64
+    import json as json_mod
+
+    tool = MessageGuillotine("fake-token")
+    headers = tool.session.headers
+    assert headers["Authorization"] == "fake-token"
+    # A complete, real browser UA — not a truncated pseudo-browser string
+    assert "Chrome/" in headers["User-Agent"] and "Safari/537.36" in headers["User-Agent"]
+    props = json_mod.loads(b64.b64decode(headers["X-Super-Properties"]))
+    assert props["os"] == "Windows" and props["browser"] == "Chrome"
+    assert props["browser_user_agent"] == headers["User-Agent"]
+    assert headers["X-Discord-Locale"] == "en-US"
+
+
+def test_delete_403_system_message_skips_and_continues(monkeypatch, capsys):
+    class SystemMessageResponse(FakeResponse):
+        """403 with the platform's 'cannot delete a system message' code."""
+
+        def __init__(self):
+            super().__init__(403)
+            self._body = {"message": "Cannot execute action on a system message",
+                          "code": 50021}
+
+        def json(self):
+            return self._body
+
+    tool = make_tool([SystemMessageResponse(), 204, 204])
+    sleeps = run_delete(monkeypatch, tool, 3)
+    assert len(tool.session.calls) == 3  # skipped the system message, deleted the rest
+    assert len(sleeps) == 2
+    out = capsys.readouterr().out
+    assert "Skipped: 1" in out
+    assert "Stopping" not in out
+    assert "system messages" in out
+
+
+def test_delete_403_other_codes_still_abort(monkeypatch, capsys):
+    class PermissionResponse(FakeResponse):
+        def __init__(self):
+            super().__init__(403)
+            self._body = {"message": "Missing Permissions", "code": 50013}
+
+        def json(self):
+            return self._body
+
+    tool = make_tool([PermissionResponse(), 204])
+    run_delete(monkeypatch, tool, 2)
+    assert len(tool.session.calls) == 1  # aborted on the first message
+    out = capsys.readouterr().out
+    assert "Stopping" in out
+    assert "Missing Permissions (code 50013)" in out

@@ -46,20 +46,31 @@ def test_page_payload_seq_is_position(archive):
 def test_filtered_view_date_range(archive):
     viewer = load(archive)
     # bare date_to excludes that day lexically (parse_filter_params extends it)
-    assert list(viewer.filtered_view(("2026-01-02", "2026-01-03", False, False))) == [1]
+    assert list(viewer.filtered_view(("2026-01-02", "2026-01-03", False, False, False))) == [1]
     end_of_day = "2026-01-03T23:59:59.999999+00:00"
-    assert list(viewer.filtered_view(("2026-01-02", end_of_day, False, False))) == [1, 2]
+    assert list(viewer.filtered_view(("2026-01-02", end_of_day, False, False, False))) == [1, 2]
 
 
 def test_filtered_view_has_attachment_and_link(archive):
     viewer = load(archive)
-    assert list(viewer.filtered_view((None, None, True, False))) == [3]
-    assert list(viewer.filtered_view((None, None, False, True))) == [2]
+    assert list(viewer.filtered_view((None, None, True, False, False))) == [3]
+    assert list(viewer.filtered_view((None, None, False, True, False))) == [2]
+
+
+def test_filtered_view_pinned(tmp_path):
+    records = [
+        message_record(1),
+        {**message_record(2), "pinned": True},
+        message_record(3),
+    ]
+    viewer = load(make_archive(tmp_path, records=records))
+    assert list(viewer.filtered_view((None, None, False, False, True))) == [1]
+    assert len(viewer.filtered_view((None, None, False, False, False))) == 3
 
 
 def test_filtered_view_unfiltered_is_all(archive):
     viewer = load(archive)
-    assert len(viewer.filtered_view((None, None, False, False))) == 5
+    assert len(viewer.filtered_view((None, None, False, False, False))) == 5
 
 
 def test_anchor_payload(archive):
@@ -128,6 +139,7 @@ def test_stats_payload(archive):
     assert stats["total_attachments"] == 1
     assert stats["edited"] == 1
     assert stats["replies"] == 1
+    assert stats["pinned"] == 0  # the fixture archive has no pinned records
     assert stats["with_attachments"] == 1
     assert stats["authors"] == [{"name": "alice", "count": 5}]
     assert stats["months"] == [{"month": "2026-01", "count": 5}]
@@ -154,8 +166,10 @@ def test_parse_filter_params_bare_end_date_includes_whole_day():
 
 def test_parse_filter_params_flags():
     filters = viewer_archive.parse_filter_params({"has_attachment": ["true"],
-                                                  "has_link": ["true"]})
-    assert filters == (None, None, True, True)
+                                                  "has_link": ["true"],
+                                                  "pinned": ["true"]})
+    assert filters == (None, None, True, True, True)
+    assert viewer_archive.parse_filter_params({"pinned": ["true"]}) == (None, None, False, False, True)
 
 
 def test_parse_filter_params_normalizes_offsets_to_utc():

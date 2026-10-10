@@ -30,6 +30,7 @@ INDEX_HTML = r'''<!DOCTYPE html>
     <label class="fb-item">To <input type="date" id="date-to"></label>
     <label class="fb-item chk"><input type="checkbox" id="f-att"> Has attachment</label>
     <label class="fb-item chk"><input type="checkbox" id="f-link"> Has link</label>
+    <label class="fb-item chk"><input type="checkbox" id="f-pin"> Pinned</label>
     <button id="sort-dir" class="fb-item">Oldest first</button>
     <button id="f-clear" class="fb-item" hidden>Clear filters</button>
     <span id="f-status"></span>
@@ -235,6 +236,7 @@ body { display: flex; flex-direction: column; }
 .msg .author { font-weight: 600; }
 .msg .time { color: var(--fg-dim); font-size: 11px; }
 .msg .edited { color: var(--fg-dim); font-size: 10px; }
+.msg .pinned { color: var(--accent); font-size: 10px; }
 
 .msg .content { white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg .content a { color: #00a8fc; }
@@ -558,6 +560,7 @@ const els = {
   dateTo: document.getElementById("date-to"),
   fAtt: document.getElementById("f-att"),
   fLink: document.getElementById("f-link"),
+  fPin: document.getElementById("f-pin"),
   sortDir: document.getElementById("sort-dir"),
   fClear: document.getElementById("f-clear"),
   fStatus: document.getElementById("f-status"),
@@ -593,7 +596,7 @@ const state = {
   tab: "chat",
   epoch: 0,           // bumped on archive switch; drops stale async responses
   dir: "asc",          // "asc" = oldest first (chat order), "desc" = newest first
-  filters: null,       // {from, to, att, link} when any filter is active
+  filters: null,       // {from, to, att, link, pin} when any filter is active
 };
 
 const AUTHOR_COLORS = ["#5865f2", "#3ba55c", "#faa61a", "#ed4245", "#eb459e",
@@ -679,7 +682,8 @@ function readFilterInputs() {
   const to = els.dateTo.value;
   const att = els.fAtt.checked;
   const link = els.fLink.checked;
-  return (from || to || att || link) ? { from, to, att, link } : null;
+  const pin = els.fPin.checked;
+  return (from || to || att || link || pin) ? { from, to, att, link, pin } : null;
 }
 
 function filterQS() {
@@ -690,6 +694,7 @@ function filterQS() {
     if (f.to) parts.push("to=" + f.to);
     if (f.att) parts.push("has_attachment=true");
     if (f.link) parts.push("has_link=true");
+    if (f.pin) parts.push("pinned=true");
   }
   if (state.dir === "desc") parts.push("dir=desc");
   return parts.length ? "&" + parts.join("&") : "";
@@ -706,6 +711,7 @@ function clearFilters(reload) {
   els.dateTo.value = "";
   els.fAtt.checked = false;
   els.fLink.checked = false;
+  els.fPin.checked = false;
   state.filters = null;
   els.searchResults.hidden = true;
   if (reload) loadFirstPage();
@@ -750,6 +756,7 @@ function messageNode(msg, prev) {
     const head = el("div", "head");
     head.appendChild(el("span", "author", msg.author || "unknown"));
     head.appendChild(el("span", "time", fmtTime(msg.timestamp)));
+    if (msg.pinned) head.appendChild(el("span", "pinned", "pinned"));
     if (msg.edited_timestamp) head.appendChild(el("span", "edited", "(edited)"));
     wrap.appendChild(head);
   }
@@ -1166,6 +1173,7 @@ async function loadStats() {
   mkCard(s.total_attachments.toLocaleString(), "attachments");
   mkCard(fmtSize(s.attachment_bytes), "media stored");
   mkCard(String(s.replies), "replies");
+  mkCard(String(s.pinned), "pinned");
   wrap.appendChild(cards);
 
   wrap.appendChild(el("h2", "section", "Messages per author"));
@@ -1311,6 +1319,7 @@ els.dateFrom.addEventListener("change", applyFilters);
 els.dateTo.addEventListener("change", applyFilters);
 els.fAtt.addEventListener("change", applyFilters);
 els.fLink.addEventListener("change", applyFilters);
+els.fPin.addEventListener("change", applyFilters);
 els.sortDir.addEventListener("click", toggleSort);
 els.fClear.addEventListener("click", () => clearFilters(true));
 
@@ -1355,6 +1364,7 @@ async function applyArchive(meta, name) {
   els.dateTo.value = "";
   els.fAtt.checked = false;
   els.fLink.checked = false;
+  els.fPin.checked = false;
   els.sortDir.textContent = "Oldest first";
   els.fStatus.textContent = "";
   els.fClear.hidden = true;

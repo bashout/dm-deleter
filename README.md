@@ -9,7 +9,7 @@ Bulk delete and archive your DM and server messages via the platform's unofficia
 | Feature | Description |
 |---------|-------------|
 | DM deletion | Delete your own DM messages, filtered by user and time range |
-| Server deletion | Delete your messages (or all, with admin) from a server channel |
+| Server deletion | Delete your own messages from a server channel, filtered by time range |
 | Rate limiting | 24 messages/minute with live progress and ETA |
 | Archiving | Save a full chat — both sides, oldest first — as `messages.jsonl` + `attachments/`, streamed page by page |
 | Resume | Interrupted archives pick up where they stopped; partial writes are cleaned up automatically |

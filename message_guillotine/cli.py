@@ -83,8 +83,8 @@ def select_dm_user(tool):
 
 def select_guild_channel(tool):
     """Prompt the user to pick a guild and channel. Returns (guild, channel) or None."""
-    if not tool.get_guilds():
-        print("Failed to fetch guilds.")
+    if not tool.get_guilds() or not tool.guilds:
+        print("No servers found.")
         return None
 
     print("\n" + "="*80)
@@ -293,30 +293,24 @@ def handle_server_deletion(tool):
     if not selected:
         return
     selected_guild, selected_channel = selected
-    
-    # Ask: delete only my messages or all messages
-    print("\n" + "="*80)
-    print("DELETE OPTIONS")
-    print("="*80)
-    my_only = input("Delete only YOUR messages? (y/N, default=N): ").strip().lower() == 'y'
-    
+
     # Time range
     print("\n" + "="*80)
     print("SELECT TIME RANGE")
     print("Leave blank for no limit")
     print("="*80)
-    
+
     start_time = parse_datetime("Start date (YYYY-MM-DD HH:MM:SS): ")
     end_time = parse_datetime("End date (YYYY-MM-DD HH:MM:SS): ")
-    
+
     if start_time is None:
         start_time = datetime(2015, 1, 1)
     if end_time is None:
         end_time = datetime.now() + timedelta(days=1)
-    
+
     print(f"\nTime range: {start_time} to {end_time}")
-    print(f"Deleting: {'ONLY your messages' if my_only else 'ALL messages'}")
-    
+    print("Deleting: ONLY your messages")
+
     channel_id = selected_channel['id']
     print(f"\nFetching messages from #{selected_channel['name']}...")
 
@@ -326,8 +320,8 @@ def handle_server_deletion(tool):
         print(f"Could not fetch channel history ({exc}).")
         return
     print(f"Fetched {len(all_messages)} total messages from this channel.")
-    
-    filtered_messages = tool.filter_messages_in_range(all_messages, start_time, end_time, my_only=my_only)
+
+    filtered_messages = tool.filter_messages_in_range(all_messages, start_time, end_time, my_only=True)
     
     if not filtered_messages:
         print("No messages found matching criteria.")

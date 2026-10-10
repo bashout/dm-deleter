@@ -16,6 +16,7 @@ RATE_LIMIT_DELAY = 2.6  # 24 messages per minute = ~2.5s each, use 2.6s for safe
 ATTACHMENT_DELAY = 0.05  # Politeness delay between CDN downloads (CDN is not API rate limited)
 FETCH_RETRIES = 5  # attempts per page before the archive run is marked incomplete
 FETCH_RETRY_DELAY = 5  # seconds to wait between retries of a failed page fetch
+DELETE_RETRIES = 3  # attempts per message when a delete is rate limited
 REQUEST_TIMEOUT = (10, 30)  # (connect, read) seconds per HTTP request; no request may hang forever
 
 
@@ -194,9 +195,11 @@ class MessageGuillotine:
         return filtered
     
     def delete_message(self, channel_id, message_id):
-        """Delete a single message."""
-        resp = self.session.delete(f"{API_BASE}/channels/{channel_id}/messages/{message_id}", timeout=REQUEST_TIMEOUT)
-        return resp.status_code in (200, 204)
+        """Delete a single message. Returns the response so the caller can
+        read status_code (and Retry-After when rate limited)."""
+        return self.session.delete(
+            f"{API_BASE}/channels/{channel_id}/messages/{message_id}",
+            timeout=REQUEST_TIMEOUT)
 
     def download_attachment(self, url, dest_path):
         """Stream an attachment to dest_path via a .part file, renamed on completion.
@@ -221,29 +224,53 @@ class MessageGuillotine:
             return None
     
     def delete_with_rate_limit(self, messages, channel_id):
-        """Delete messages at 24 per minute with progress."""
+        """Delete messages at 24 per minute with progress.
+
+        A 429 backs off for the server's Retry-After and retries the same
+        message (bounded). 401/403 abort the run outright: every remaining
+        delete would fail the same way — a rejected token, or a channel
+        that blocks this account from deleting messages."""
         total = len(messages)
         print(f"\nFound {total} messages to delete.")
         print(f"Will delete at ~24/min (1 every {RATE_LIMIT_DELAY:.1f}s)...")
-        
+
         confirm = input("Continue? (y/N): ").strip().lower()
         if confirm != 'y':
             print("Cancelled.")
             return
-        
+
         deleted = 0
         failed = 0
         start_time = time.time()
-        
+
         for i, msg in enumerate(messages, 1):
             message_id = msg['id']
-            
-            success = self.delete_message(channel_id, message_id)
-            if success:
-                deleted += 1
-            else:
+
+            for attempt in range(1, DELETE_RETRIES + 1):
+                resp = self.delete_message(channel_id, message_id)
+                if resp.status_code in (200, 204):
+                    deleted += 1
+                    break
+                if resp.status_code == 429:
+                    retry_after = max(float(resp.headers.get("Retry-After") or RATE_LIMIT_DELAY), 1.0)
+                    print(f"\n  Rate limited; retrying in {retry_after:.0f}s "
+                          f"(attempt {attempt}/{DELETE_RETRIES})...")
+                    time.sleep(retry_after)
+                    continue
+                if resp.status_code in (401, 403):
+                    reason = ("the token was rejected - re-authenticate"
+                              if resp.status_code == 401 else
+                              "this account is not allowed to delete messages "
+                              "in this channel")
+                    print(f"\n\nStopping: delete returned HTTP {resp.status_code} ({reason}).")
+                    print(f"Deleted {deleted}/{total} before stopping; "
+                          f"{total - deleted - failed} messages left.")
+                    return
                 failed += 1
-            
+                break
+            else:
+                failed += 1  # rate limited through every attempt
+
             # Calculate time remaining
             remaining = (total - i) * RATE_LIMIT_DELAY
             elapsed = time.time() - start_time
@@ -267,7 +294,8 @@ class MessageGuillotine:
                 return " ".join(parts)
             
             print(f"[{i}/{total}] Deleted: {deleted} | Failed: {failed} | Elapsed: {fmt_secs(elapsed)} | Remaining: {fmt_secs(remaining)} | Rate: {RATE_LIMIT_DELAY:.1f}s/msg", end='\r')
-            
-            time.sleep(RATE_LIMIT_DELAY)
+
+            if i < total:
+                time.sleep(RATE_LIMIT_DELAY)
         
         print(f"\nDone. Deleted {deleted}/{total}, Failed: {failed}")

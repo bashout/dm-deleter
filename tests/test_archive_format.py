@@ -12,6 +12,7 @@ def test_minimal_message_projects_fields():
         "author": {"id": "7", "username": "alice", "global_name": "Alice"},
         "timestamp": "2026-01-01T00:00:00+00:00",
         "edited_timestamp": None,
+        "pinned": True,
         "content": "hi",
         "type": 0,
         "message_reference": {"message_id": "2"},
@@ -23,6 +24,7 @@ def test_minimal_message_projects_fields():
         "author": "Alice",  # global_name wins over username
         "timestamp": "2026-01-01T00:00:00+00:00",
         "edited_timestamp": None,
+        "pinned": True,
         "content": "hi",
         "type": 0,
         "reply_to": "2",
@@ -82,3 +84,12 @@ def test_status_roundtrip(tmp_path):
 def test_status_corrupted_file(tmp_path):
     (tmp_path / "status.json").write_text("not json", encoding="utf-8")
     assert archive_format.read_archive_status(tmp_path) is None
+
+
+def test_minimal_message_pins_default_to_false():
+    record = archive_format.minimal_message({
+        "id": "1",
+        "author": {"id": "7", "username": "alice"},
+        "timestamp": "2026-01-01T00:00:00+00:00",
+    })
+    assert record["pinned"] is False  # raw messages without a pinned field read as unpinned

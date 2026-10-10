@@ -23,6 +23,7 @@ def minimal_message(msg):
         "author": msg["author"].get("global_name") or msg["author"].get("username"),
         "timestamp": msg["timestamp"],
         "edited_timestamp": msg.get("edited_timestamp"),  # null = never edited
+        "pinned": bool(msg.get("pinned")),  # pin state at archive time; older records read as unpinned
         "content": msg.get("content", ""),
         "type": msg.get("type", 0),
         "reply_to": (msg.get("message_reference") or {}).get("message_id"),

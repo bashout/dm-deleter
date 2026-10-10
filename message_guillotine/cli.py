@@ -13,7 +13,11 @@ import webbrowser
 from datetime import datetime, timedelta
 
 from message_guillotine.api import HistoryFetchError, MessageGuillotine
-from message_guillotine.archive_format import find_existing_archive
+from message_guillotine.archive_format import (
+    find_existing_archive,
+    list_archives,
+    read_meta,
+)
 from message_guillotine.archiver import archive_chat
 from message_guillotine.config import configure_archive_dir, resolve_archive_dir
 from message_guillotine.viewer.server import create_server
@@ -79,8 +83,8 @@ def select_dm_user(tool):
 
 def select_guild_channel(tool):
     """Prompt the user to pick a guild and channel. Returns (guild, channel) or None."""
-    if not tool.get_guilds():
-        print("Failed to fetch guilds.")
+    if not tool.get_guilds() or not tool.guilds:
+        print("No servers found.")
         return None
 
     print("\n" + "="*80)
@@ -153,6 +157,62 @@ def browse_archives(focus_channel_id=None, archive_dir=None):
     print("Viewer stopped.")
 
 
+def pick_merge_target(channel_id, archive_dir):
+    """Offer merging into an existing archive when the chat has no archive of
+    its own. Returns the chosen folder path, or None to start a new archive.
+    Returns False when the user cancels the archive run entirely."""
+    if find_existing_archive(channel_id, archive_dir) is not None:
+        return None  # this chat already has an archive: it resumes automatically
+    others = list_archives(archive_dir)
+    if not others:
+        return None
+
+    while True:
+        print("\n" + "="*80)
+        print("NO PREVIOUS ARCHIVE FOR THIS CHAT")
+        print("="*80)
+        print("[1] Start a new archive (default)")
+        print("[2] Merge into an existing archive")
+        print("[0] Cancel")
+
+        try:
+            choice = int(input("Select (0-2): ").strip())
+        except ValueError:
+            print("Invalid selection.")
+            continue
+        if choice == 0:
+            return False
+        if choice == 1:
+            return None
+        if choice != 2:
+            print("Invalid selection.")
+            continue
+        break
+
+    print("\n" + "="*80)
+    print("MERGE INTO AN EXISTING ARCHIVE")
+    print("="*80)
+    for i, path in enumerate(others, 1):
+        meta = read_meta(path)
+        chat = meta.get("chat") or path.name
+        channel = meta.get("channel_id") or "?"
+        print(f"[{i}] {chat} (channel ID: {channel})")
+    print("\n[0] Cancel")
+
+    while True:
+        try:
+            choice = int(input("Select archive (number): ").strip())
+        except ValueError:
+            print("Invalid selection.")
+            continue
+        if choice == 0:
+            return False
+        if not 1 <= choice <= len(others):
+            print("Invalid selection.")
+            continue
+        return others[choice - 1]
+
+
 def handle_archive(tool, archive_dir=None):
     """Handle chat archiving (JSONL + attachments, nothing is deleted)."""
     archive_dir = resolve_archive_dir(archive_dir)
@@ -186,7 +246,12 @@ def handle_archive(tool, archive_dir=None):
     else:
         return
 
-    folder = archive_chat(tool, channel_id, label, archive_dir)
+    merge_target = pick_merge_target(str(channel_id), archive_dir)
+    if merge_target is False:
+        print("Cancelled.")
+        return
+    folder = archive_chat(tool, channel_id, label, archive_dir,
+                          merge_target=merge_target)
     if folder and input("\nOpen this archive in the viewer now? (y/N): ").strip().lower() == 'y':
         browse_archives(focus_channel_id=channel_id, archive_dir=archive_dir)
 
@@ -237,30 +302,24 @@ def handle_server_deletion(tool):
     if not selected:
         return
     selected_guild, selected_channel = selected
-    
-    # Ask: delete only my messages or all messages
-    print("\n" + "="*80)
-    print("DELETE OPTIONS")
-    print("="*80)
-    my_only = input("Delete only YOUR messages? (y/N, default=N): ").strip().lower() == 'y'
-    
+
     # Time range
     print("\n" + "="*80)
     print("SELECT TIME RANGE")
     print("Leave blank for no limit")
     print("="*80)
-    
+
     start_time = parse_datetime("Start date (YYYY-MM-DD HH:MM:SS): ")
     end_time = parse_datetime("End date (YYYY-MM-DD HH:MM:SS): ")
-    
+
     if start_time is None:
         start_time = datetime(2015, 1, 1)
     if end_time is None:
         end_time = datetime.now() + timedelta(days=1)
-    
+
     print(f"\nTime range: {start_time} to {end_time}")
-    print(f"Deleting: {'ONLY your messages' if my_only else 'ALL messages'}")
-    
+    print("Deleting: ONLY your messages")
+
     channel_id = selected_channel['id']
     print(f"\nFetching messages from #{selected_channel['name']}...")
 
@@ -270,8 +329,8 @@ def handle_server_deletion(tool):
         print(f"Could not fetch channel history ({exc}).")
         return
     print(f"Fetched {len(all_messages)} total messages from this channel.")
-    
-    filtered_messages = tool.filter_messages_in_range(all_messages, start_time, end_time, my_only=my_only)
+
+    filtered_messages = tool.filter_messages_in_range(all_messages, start_time, end_time, my_only=True)
     
     if not filtered_messages:
         print("No messages found matching criteria.")

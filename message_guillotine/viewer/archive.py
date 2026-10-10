@@ -25,6 +25,12 @@ class Archive:
         self.folder = Path(folder)
         self.meta = self._load_json(self.folder / "meta.json", default={})
         self.messages = self._load_jsonl(self.folder / "messages.jsonl")
+        # A hard kill during a merge can leave messages.jsonl unsorted (the
+        # archiver sorts only on graceful exits); ids are chronological
+        # snowflakes, so sort at load to keep the archive readable meanwhile.
+        if any(int(later["id"]) < int(earlier["id"])
+               for earlier, later in zip(self.messages, self.messages[1:])):
+            self.messages.sort(key=lambda m: int(m["id"]))
         self.index_by_id = {m["id"]: i for i, m in enumerate(self.messages)}
         self.attachments_by_id = {}
         for entry in self._load_jsonl(self.folder / "manifest.jsonl"):
@@ -37,6 +43,7 @@ class Archive:
         # Lazily built, immutable-after-load filter indexes (archive is read-only)
         self._attachment_indices = None
         self._link_indices = None
+        self._pinned_indices = None
         self._view_cache = {}
         self._attachment_records = None
 
@@ -126,14 +133,22 @@ class Archive:
             )
         return self._link_indices
 
+    def _indices_with_pins(self):
+        if self._pinned_indices is None:
+            self._pinned_indices = frozenset(
+                i for i, m in enumerate(self.messages) if m.get("pinned")
+            )
+        return self._pinned_indices
+
     def filtered_view(self, filters):
-        """indices (ascending) matching (date_from, date_to, has_attachment, has_link)."""
+        """indices (ascending) matching (date_from, date_to, has_attachment, has_link, pinned)."""
         cached = self._view_cache.get(filters)
         if cached is not None:
             return cached
-        date_from, date_to, has_attachment, has_link = filters
+        date_from, date_to, has_attachment, has_link, pinned = filters
         attachments = self._indices_with_attachments() if has_attachment else None
         links = self._indices_with_links() if has_link else None
+        pins = self._indices_with_pins() if pinned else None
         view = []
         for i, message in enumerate(self.messages):
             timestamp = message.get("timestamp") or ""
@@ -144,6 +159,8 @@ class Archive:
             if attachments is not None and i not in attachments:
                 continue
             if links is not None and i not in links:
+                continue
+            if pins is not None and i not in pins:
                 continue
             view.append(i)
         if len(self._view_cache) >= VIEW_CACHE_MAX:
@@ -288,6 +305,7 @@ class Archive:
         months = Counter()
         edited = 0
         replies = 0
+        pinned = 0
         with_attachments = 0
         for message in self.messages:
             authors[message.get("author") or "unknown"] += 1
@@ -296,6 +314,8 @@ class Archive:
                 edited += 1
             if message.get("reply_to"):
                 replies += 1
+            if message.get("pinned"):
+                pinned += 1
             if message.get("attachment_ids"):
                 with_attachments += 1
         extensions = Counter()
@@ -311,6 +331,7 @@ class Archive:
             "months": [{"month": month, "count": count} for month, count in sorted(months.items())],
             "edited": edited,
             "replies": replies,
+            "pinned": pinned,
             "with_attachments": with_attachments,
             "attachment_types": [{"ext": ext, "count": count} for ext, count in extensions.most_common()],
         }
@@ -332,8 +353,9 @@ def parse_filter_params(params):
         date_to += "T23:59:59.999999+00:00"
     has_attachment = (params.get("has_attachment") or ["false"])[0] == "true"
     has_link = (params.get("has_link") or ["false"])[0] == "true"
-    if date_from or date_to or has_attachment or has_link:
-        return (date_from, date_to, has_attachment, has_link)
+    pinned = (params.get("pinned") or ["false"])[0] == "true"
+    if date_from or date_to or has_attachment or has_link or pinned:
+        return (date_from, date_to, has_attachment, has_link, pinned)
     return None
 
 

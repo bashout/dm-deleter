@@ -8,6 +8,7 @@ import urllib.request
 import pytest
 
 from message_guillotine.viewer.server import ClientInputError, create_server, int_param
+from tests.conftest import make_archive, message_record
 
 
 @pytest.fixture
@@ -174,3 +175,26 @@ def test_int_param():
     assert int_param({"count": [None]}, "count", 7) == 7
     with pytest.raises(ClientInputError):
         int_param({"count": ["abc"]}, "count", 7)
+
+
+def test_messages_pinned_filter_and_stats(tmp_path):
+    records = [
+        message_record(1),
+        {**message_record(2), "pinned": True},
+        message_record(3),
+    ]
+    folder = make_archive(tmp_path, records=records)
+    server, url = create_server(tmp_path, select_archive=folder.name)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        _, _, body = fetch(url, "/api/messages?pinned=true")
+        payload = json.loads(body)
+        assert payload["total"] == 1
+        assert payload["messages"][0]["id"] == "2"
+        assert payload["messages"][0]["pinned"] is True
+        _, _, body = fetch(url, "/api/stats")
+        assert json.loads(body)["pinned"] == 1
+    finally:
+        server.shutdown()
+        server.server_close()

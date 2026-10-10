@@ -83,3 +83,68 @@ def test_main_accepts_archive_dir_arg(monkeypatch, tmp_path, capsys):
     cli.main(["--archive-dir", str(tmp_path / "cli")])
     assert seen["calls"][0] == str(tmp_path / "cli")  # resolve_archive_dir converts to Path
     assert "Archival folder" in capsys.readouterr().out
+
+
+def _make_archive(root, name="old", channel_id="42", chat="Old Chat"):
+    folder = root / name
+    folder.mkdir(parents=True)
+    (folder / "meta.json").write_text(
+        f'{{"channel_id": "{channel_id}", "chat": "{chat}"}}\n', encoding="utf-8")
+    (folder / "messages.jsonl").write_text("", encoding="utf-8")
+    return folder
+
+
+def test_pick_merge_target_skipped_when_chat_already_archived(monkeypatch, tmp_path):
+    _make_archive(tmp_path)
+    def fail(prompt):
+        raise AssertionError("no prompt expected")
+    monkeypatch.setattr("builtins.input", fail)
+    assert cli.pick_merge_target("42", tmp_path) is None
+
+
+def test_pick_merge_target_default_starts_new_archive(monkeypatch, tmp_path):
+    _make_archive(tmp_path)
+    monkeypatch.setattr("builtins.input", lambda _: "1")
+    assert cli.pick_merge_target("43", tmp_path) is None
+
+
+def test_pick_merge_target_picks_archive(monkeypatch, tmp_path):
+    folder = _make_archive(tmp_path)
+    answers = iter(["2", "1"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+    assert cli.pick_merge_target("43", tmp_path) == folder
+
+
+def test_pick_merge_target_cancel_aborts_run(monkeypatch, tmp_path):
+    _make_archive(tmp_path)
+    monkeypatch.setattr("builtins.input", lambda _: "0")
+    assert cli.pick_merge_target("43", tmp_path) is False
+
+
+def test_pick_merge_target_cancel_at_archive_list_aborts_run(monkeypatch, tmp_path):
+    _make_archive(tmp_path)
+    answers = iter(["2", "0"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+    assert cli.pick_merge_target("43", tmp_path) is False
+
+
+def test_pick_merge_target_invalid_pick_reprompts(monkeypatch, tmp_path):
+    folder = _make_archive(tmp_path)
+    answers = iter(["9", "x", "2", "1"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+    assert cli.pick_merge_target("43", tmp_path) == folder
+
+
+def test_pick_merge_target_invalid_first_choice_reprompts(monkeypatch, tmp_path):
+    folder = _make_archive(tmp_path)
+    answers = iter(["7", "nonsense", "2", "1"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+    assert cli.pick_merge_target("43", tmp_path) == folder
+
+
+def test_pick_merge_target_no_other_archives(monkeypatch, tmp_path):
+    (tmp_path / "not-an-archive").mkdir()
+    def fail(prompt):
+        raise AssertionError("no prompt expected")
+    monkeypatch.setattr("builtins.input", fail)
+    assert cli.pick_merge_target("43", tmp_path) is None

@@ -5,6 +5,8 @@ channel/guild listing, paginated history with retries, deletion with rate
 limiting, and streaming attachment downloads."""
 
 
+import base64
+import json
 import time
 from datetime import datetime
 
@@ -16,7 +18,33 @@ RATE_LIMIT_DELAY = 2.6  # 24 messages per minute = ~2.5s each, use 2.6s for safe
 ATTACHMENT_DELAY = 0.05  # Politeness delay between CDN downloads (CDN is not API rate limited)
 FETCH_RETRIES = 5  # attempts per page before the archive run is marked incomplete
 FETCH_RETRY_DELAY = 5  # seconds to wait between retries of a failed page fetch
+DELETE_RETRIES = 3  # attempts per message when a delete is rate limited
 REQUEST_TIMEOUT = (10, 30)  # (connect, read) seconds per HTTP request; no request may hang forever
+UNDELETABLE_MESSAGE_CODES = {50021}  # system messages (calls, pin notifications) can never be deleted via the API
+
+BROWSER_USER_AGENT = (  # A complete, real browser UA; the platform rejects writes from clients it cannot fingerprint
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+
+# The web client sends these on every request; writes (deletes especially)
+# get 403s without them even when the account can delete via the UI.
+SUPER_PROPERTIES = {
+    "os": "Windows",
+    "browser": "Chrome",
+    "device": "",
+    "system_locale": "en-US",
+    "browser_user_agent": BROWSER_USER_AGENT,
+    "browser_version": "126.0.0.0",
+    "os_version": "10",
+    "referrer": "",
+    "referring_domain": "",
+    "referrer_current": "",
+    "referring_domain_current": "",
+    "release_channel": "stable",
+    "client_build_number": 275457,
+    "client_event_source": None,
+    "design_id": 0,
+}
 
 
 class HistoryFetchError(Exception):
@@ -26,13 +54,42 @@ class HistoryFetchError(Exception):
     is incomplete instead of treating an early stop as a finished run."""
 
 
+def _error_detail(resp):
+    """Extract the platform's own error message from an error response,
+    so an abort can say why, not just that it failed."""
+    try:
+        body = resp.json()
+        message = body.get("message")
+        code = body.get("code")
+    except (ValueError, AttributeError):
+        message, code = None, None
+    if message:
+        return f"{message} (code {code})" if code is not None else message
+    text = (getattr(resp, "text", "") or "").strip()
+    if text:
+        return text[:200]
+    return ""
+
+
+def _error_code(resp):
+    """The platform's numeric error code from an error response, or None."""
+    try:
+        return resp.json().get("code")
+    except (ValueError, AttributeError):
+        return None
+
+
 class MessageGuillotine:
     def __init__(self, token):
         self.token = token
         self.session = requests.Session()
         self.session.headers.update({
             "Authorization": token,
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            "User-Agent": BROWSER_USER_AGENT,
+            "Accept-Language": "en-US,en;q=0.9",
+            "X-Discord-Locale": "en-US",
+            "X-Super-Properties": base64.b64encode(
+                json.dumps(SUPER_PROPERTIES, separators=(",", ":")).encode()).decode(),
         })
         self.current_user = None
         self.dm_channels = []
@@ -194,9 +251,11 @@ class MessageGuillotine:
         return filtered
     
     def delete_message(self, channel_id, message_id):
-        """Delete a single message."""
-        resp = self.session.delete(f"{API_BASE}/channels/{channel_id}/messages/{message_id}", timeout=REQUEST_TIMEOUT)
-        return resp.status_code in (200, 204)
+        """Delete a single message. Returns the response so the caller can
+        read status_code (and Retry-After when rate limited)."""
+        return self.session.delete(
+            f"{API_BASE}/channels/{channel_id}/messages/{message_id}",
+            timeout=REQUEST_TIMEOUT)
 
     def download_attachment(self, url, dest_path):
         """Stream an attachment to dest_path via a .part file, renamed on completion.
@@ -221,29 +280,75 @@ class MessageGuillotine:
             return None
     
     def delete_with_rate_limit(self, messages, channel_id):
-        """Delete messages at 24 per minute with progress."""
+        """Delete messages at 24 per minute with progress.
+
+        A 429 backs off for the server's Retry-After and retries the same
+        message (bounded); if the retries are exhausted the run aborts —
+        the server is still rate limiting, so every remaining delete would
+        burn the same backoff and fail. A 403 for a message the API can never delete
+        (a system message such as a call or pin notification, platform
+        code 50021) skips just that message and the run continues. Any
+        other 401/403 aborts the run outright: every remaining delete
+        would fail the same way — a rejected token, or a channel that
+        blocks this account from deleting messages."""
         total = len(messages)
         print(f"\nFound {total} messages to delete.")
         print(f"Will delete at ~24/min (1 every {RATE_LIMIT_DELAY:.1f}s)...")
-        
+
         confirm = input("Continue? (y/N): ").strip().lower()
         if confirm != 'y':
             print("Cancelled.")
             return
-        
+
         deleted = 0
         failed = 0
+        skipped = 0
         start_time = time.time()
-        
+
         for i, msg in enumerate(messages, 1):
             message_id = msg['id']
-            
-            success = self.delete_message(channel_id, message_id)
-            if success:
-                deleted += 1
-            else:
+
+            for attempt in range(1, DELETE_RETRIES + 1):
+                resp = self.delete_message(channel_id, message_id)
+                if resp.status_code in (200, 204):
+                    deleted += 1
+                    break
+                if resp.status_code == 429:
+                    retry_after = max(float(resp.headers.get("Retry-After") or RATE_LIMIT_DELAY), 1.0)
+                    print(f"\n  Rate limited; retrying in {retry_after:.0f}s "
+                          f"(attempt {attempt}/{DELETE_RETRIES})...")
+                    time.sleep(retry_after)
+                    continue
+                if resp.status_code in (401, 403):
+                    if resp.status_code == 403 and _error_code(resp) in UNDELETABLE_MESSAGE_CODES:
+                        # This one message can never be deleted (a system
+                        # message such as a call or pin notification); the
+                        # rest of the run is unaffected.
+                        skipped += 1
+                        break
+                    reason = ("the token was rejected - re-authenticate"
+                              if resp.status_code == 401 else
+                              "this account is not allowed to delete messages "
+                              "in this channel")
+                    print(f"\n\nStopping: delete returned HTTP {resp.status_code} ({reason}).")
+                    detail = _error_detail(resp)
+                    if detail:
+                        print(f"Platform response: {detail}")
+                    print(f"Deleted {deleted}/{total} before stopping; "
+                          f"{total - deleted - failed - skipped} messages left.")
+                    return
                 failed += 1
-            
+                break
+            else:
+                failed += 1  # rate limited through every attempt
+                print(
+                    f"\n\nStopping: still rate limited after {DELETE_RETRIES} attempts. "
+                    f"Every remaining delete would fail the same way; rerun "
+                    f"later to delete the rest.")
+                print(f"Deleted {deleted}/{total} before stopping; "
+                      f"{total - deleted - failed - skipped} messages left.")
+                return
+
             # Calculate time remaining
             remaining = (total - i) * RATE_LIMIT_DELAY
             elapsed = time.time() - start_time
@@ -266,8 +371,12 @@ class MessageGuillotine:
                     parts.append(f"{minutes:02d}:{seconds:02d}")
                 return " ".join(parts)
             
-            print(f"[{i}/{total}] Deleted: {deleted} | Failed: {failed} | Elapsed: {fmt_secs(elapsed)} | Remaining: {fmt_secs(remaining)} | Rate: {RATE_LIMIT_DELAY:.1f}s/msg", end='\r')
-            
-            time.sleep(RATE_LIMIT_DELAY)
-        
-        print(f"\nDone. Deleted {deleted}/{total}, Failed: {failed}")
+            print(f"[{i}/{total}] Deleted: {deleted} | Failed: {failed} | Skipped: {skipped} | Elapsed: {fmt_secs(elapsed)} | Remaining: {fmt_secs(remaining)} | Rate: {RATE_LIMIT_DELAY:.1f}s/msg", end='\r')
+
+            if i < total:
+                time.sleep(RATE_LIMIT_DELAY)
+
+        print(f"\nDone. Deleted {deleted}/{total}, Failed: {failed}, Skipped: {skipped}")
+        if skipped:
+            print("Skipped messages are system messages (calls, pin notifications) "
+                  "that the platform does not allow deleting.")

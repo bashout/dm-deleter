@@ -172,3 +172,53 @@ def test_attachment_filename_falls_back_to_attachment_id(tmp_path):
     folder = archiver.archive_chat(FakeTool(messages), "42", "chat", tmp_path / "archives")
     saved = [p.name for p in (folder / "attachments").iterdir()]
     assert saved == ["0001_1_att-a9"]  # GUID fallback, not a shared "file" name
+
+
+def test_archive_chat_merges_into_existing_archive(tmp_path):
+    archive_dir = tmp_path / "archives"
+    target = archiver.archive_chat(FakeTool([api_message(10), api_message(11)]),
+                                    "42", "chat-a", archive_dir)
+    tool = FakeTool([api_message(5), api_message(9, attachments=[True]),
+                     api_message(12)])
+    folder = archiver.archive_chat(tool, "43", "chat-b", archive_dir,
+                                   merge_target=target)
+    assert folder == target
+    # merged records are id-sorted (ids are chronological), not appended raw
+    assert [r["id"] for r in records_of(folder)] == ["5", "9", "10", "11", "12"]
+    entries = manifest_of(folder)
+    assert [e["attachment_id"] for e in entries] == ["a9"]
+    assert (folder / entries[0]["local_path"]).is_file()
+    meta = json.loads((folder / "meta.json").read_text(encoding="utf-8"))
+    assert meta["channel_ids"] == ["42", "43"]
+    assert meta["channel_cursors"] == {"42": "11", "43": "12"}
+    assert archive_format.read_archive_status(folder) is True
+
+
+def test_merged_archive_resumes_each_channel_incrementally(tmp_path):
+    archive_dir = tmp_path / "archives"
+    target = archiver.archive_chat(FakeTool([api_message(10), api_message(11)]),
+                                    "42", "chat-a", archive_dir)
+    archiver.archive_chat(FakeTool([api_message(5), api_message(12)]), "43",
+                          "chat-b", archive_dir, merge_target=target)
+
+    # re-archiving the merged-in channel resumes it and appends only the new message
+    folder = archiver.archive_chat(FakeTool([api_message(5), api_message(12),
+                                            api_message(20)]),
+                                   "43", "chat-b", archive_dir)
+    assert folder == target
+    assert [r["id"] for r in records_of(folder)] == ["5", "10", "11", "12", "20"]
+    cursors = archive_format.read_channel_cursors(folder)
+    assert cursors["43"] == "20"
+
+    # re-archiving the original channel resumes from its own cursor too
+    folder = archiver.archive_chat(FakeTool([api_message(10), api_message(11),
+                                            api_message(15)]),
+                                   "42", "chat-a", archive_dir)
+    assert folder == target
+    assert [r["id"] for r in records_of(folder)] == ["5", "10", "11", "12", "15", "20"]
+
+
+def test_archive_chat_merge_target_must_be_an_archive(tmp_path):
+    folder = archiver.archive_chat(FakeTool([api_message(1)]), "42", "chat",
+                                   tmp_path, merge_target=tmp_path / "missing")
+    assert folder is None
